@@ -1,0 +1,26 @@
+# 数据与构建产物
+data/
+*.duckdb
+*.duckdb.wal
+*.parquet
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# 工具
+.pytest_cache/
+.pytest-tmp/
+.pytest-basetemp/
+pytest-cache-files-*/
+.ruff_cache/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+.tmp-probe/

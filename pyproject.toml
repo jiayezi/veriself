@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "veriself"
+version = "0.1.0"
+description = "A typed metric execution layer for AI agents. The LLM cannot write SQL."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "qingping" }]
+keywords = ["metrics", "semantic-layer", "mcp", "duckdb", "data-warehouse", "ai-agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+]
+
+dependencies = [
+    "duckdb>=1.1",
+    "pydantic>=2.6",
+    "sqlglot>=25.0",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    # mcp 2.x 才有 MCPServer（1.x 的 FastMCP 在 2.0 已更名）；
+    # interfaces 会对 mcp<2 抛出明确错误。
+    "mcp>=2",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+
+[project.scripts]
+veriself = "veriself.interfaces.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["veriself"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# -p no:cacheprovider：关掉 pytest 缓存插件，避免每次运行都在仓库根留下
+# pytest-cache-files-* 目录与 PytestCacheWarning（在缓存目录不可写的环境下尤其吵）。
+addopts = "-q -p no:cacheprovider"
+markers = [
+    "e2e: 端到端验收（真实链路：合成数据 → 物化 → 编译 → 执行 → 审计）",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

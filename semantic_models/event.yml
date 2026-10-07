@@ -1,0 +1,25 @@
+# 事件语义模型：fact_event（事件表）→ evt_daily 日粒度逻辑列。
+# 逻辑列用自由 expr 表达（当日事件按类型/类别聚合），单位随事件类型变化见 schema.sql 注释。
+model_id: event
+table: fact_event
+type: fact
+entity: subject_id
+grain: day
+date_column: date_key
+alias: e
+columns:
+  - name: spending
+    expr: "sum(CASE WHEN event_type = 'transaction' THEN coalesce(amount, 0) ELSE 0 END)"
+    description: 当日 transaction 金额之和
+  - name: note_count
+    expr: "sum(CASE WHEN event_type = 'note' THEN 1 ELSE 0 END)"
+    description: 当日笔记条数
+  - name: llm_turn_count
+    expr: "sum(CASE WHEN event_type = 'llm_turn' THEN 1 ELSE 0 END)"
+    description: 当日对话轮次
+  - name: workout_count
+    expr: "sum(CASE WHEN event_type = 'workout' THEN 1 ELSE 0 END)"
+    description: 当日运动次数
+  - name: discretionary_spending
+    expr: "sum(CASE WHEN event_type = 'transaction' AND category IN ('dining', 'entertainment', 'shopping') THEN coalesce(amount, 0) ELSE 0 END)"
+    description: 当日非必要支出（dining/entertainment/shopping）

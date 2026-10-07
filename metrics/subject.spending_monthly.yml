@@ -1,0 +1,23 @@
+# subject.spending_monthly —— 月支出（第 1 层：上游指标按自然月求和）
+# grain=month + bucket：物化器自动做桶内聚合（sum）并取桶内最后一个有数据的日期为 date_key。
+metric_id: subject.spending_monthly
+version: 1
+status: active
+owner: qingping
+display_name: 月支出
+synonyms: [这个月花了多少, 月支出, monthly spending]
+definition: 自然月内各日支出之和；只在当月最后一个有数据的日期落一行，date_key 为该日期。
+unit: currency
+direction: neutral
+agg: sum
+grain: month
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: owner_only
+formula_sql: metric('subject.spending_daily')
+bucket:
+  agg: sum
+lineage:
+  sources: []
+  upstream_metrics: [subject.spending_daily]

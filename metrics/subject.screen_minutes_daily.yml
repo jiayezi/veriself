@@ -1,0 +1,21 @@
+# subject.screen_minutes_daily —— 屏幕时间（第 0 层）
+metric_id: subject.screen_minutes_daily
+version: 1
+status: active
+owner: qingping
+display_name: 当日屏幕时间
+synonyms: [屏幕时间, 看手机时长, screen time]
+definition: 当日屏幕使用分钟数（screen_minutes 通道之和）；无观测的日期不产出数据行。
+unit: minute
+direction: lower_better
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: aggregate_min5
+formula_sql: |
+  fact_observation.screen_minutes
+lineage:
+  sources: [fact_observation.screen_minutes]
+  upstream_metrics: []

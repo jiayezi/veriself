@@ -1,0 +1,26 @@
+# 历史版本（as-of 演示用，不参与 metrics/ 主目录加载）
+# metric_id 与 metrics/subject.sleep_debt_7d.yml 相同，version=1；口径差异：5 日窗口（当前版本 version=2 为 7 日窗口）。
+metric_id: subject.sleep_debt_7d
+version: 1
+status: active
+owner: qingping
+display_name: 近5日睡眠债
+synonyms: [睡眠债, 这周欠了多少觉, sleep debt]
+definition: 近 5 日（含当日）睡眠缺口之和；当日缺口 = max(睡眠需求 − 实际睡眠, 0)，睡够的日期不计负值。这是 version 1 的历史口径，已被 7 日窗口的 version 2 取代。
+unit: hour
+direction: lower_better
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: owner_only
+formula_sql: |
+  sum(greatest(-metric('subject.sleep_need_deviation_daily'), 0)) OVER (
+    PARTITION BY subject_id
+    ORDER BY date_key
+    ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+  )
+lineage:
+  sources: []
+  upstream_metrics: [subject.sleep_need_deviation_daily]

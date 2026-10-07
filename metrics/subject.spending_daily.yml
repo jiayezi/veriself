@@ -1,0 +1,21 @@
+# subject.spending_daily —— 日支出（第 0 层）
+metric_id: subject.spending_daily
+version: 1
+status: active
+owner: qingping
+display_name: 当日支出
+synonyms: [今天花了多少, 日支出, daily spending]
+definition: 当日 transaction 类型事件的金额之和；当日没有交易事件但存在其他事件时记为 0，完全没有事件的日期不产出数据行。
+unit: currency
+direction: neutral
+agg: sum
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: owner_only
+formula_sql: |
+  fact_event.spending
+lineage:
+  sources: [fact_event.spending]
+  upstream_metrics: []

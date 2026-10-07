@@ -1,0 +1,21 @@
+# subject.daily_steps —— 日步数（第 0 层）
+metric_id: subject.daily_steps
+version: 1
+status: active
+owner: qingping
+display_name: 日步数
+synonyms: [步数, 走了多少步, daily steps]
+definition: 当日 steps 通道观测之和；无观测的日期不产出数据行。
+unit: count
+direction: higher_better
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: aggregate_min5
+formula_sql: |
+  fact_observation.steps
+lineage:
+  sources: [fact_observation.steps]
+  upstream_metrics: []

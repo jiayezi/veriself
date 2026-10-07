@@ -1,0 +1,51 @@
+# 观测语义模型：fact_observation（通道-值窄表）→ obs_daily 日粒度逻辑列。
+# 每个逻辑列 = 当日该通道所有观测按 agg 聚合（如当日睡眠时长 = sum）。
+# ⚠️ agg 语义：这是"当日多条观测压成一个日值"，与契约的跨粒度上卷 agg 是两回事。
+model_id: observation
+table: fact_observation
+type: fact
+entity: subject_id
+grain: day
+date_column: date_key
+alias: o
+columns:
+  - name: sleep_hours
+    channel: sleep_hours
+    agg: sum
+    description: 当日睡眠时长（小时）
+  - name: sleep_start_hour
+    channel: sleep_start_hour
+    agg: avg
+    description: 当日入睡时刻（小时，24h 制小数）
+  - name: resting_hr
+    channel: resting_hr
+    agg: avg
+    description: 当日静息心率均值（bpm）
+  - name: hrv
+    channel: hrv
+    agg: avg
+    description: 当日心率变异性均值
+  - name: deep_sleep_hours
+    channel: deep_sleep_hours
+    agg: sum
+    description: 当日深睡时长（小时）
+  - name: steps
+    channel: steps
+    agg: sum
+    description: 当日步数
+  - name: exercise_minutes
+    channel: exercise_minutes
+    agg: sum
+    description: 当日运动时长（分钟）
+  - name: focus_score
+    channel: focus_score
+    agg: avg
+    description: 当日专注度得分
+  - name: screen_minutes
+    channel: screen_minutes
+    agg: sum
+    description: 当日屏幕使用时长（分钟）
+  - name: mood_score
+    channel: mood_score
+    agg: avg
+    description: 当日情绪得分

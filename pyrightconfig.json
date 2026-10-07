@@ -1,0 +1,16 @@
+{
+  // 与 VS Code 里 Pylance 的实际设置对齐（已核对：python.analysis.typeCheckingMode = "standard"，
+  // 解释器 = .venv/Scripts/python.exe），使命令行 `pyright` 与编辑器报出同一套诊断。
+  // Pyright CLI **不读** VS Code 的 settings.json，只能靠本文件；反过来本文件的优先级**高于**
+  // python.analysis.*，所以改档位时两边要同步。
+  // 本文件无法消除的两处差异（详见 AGENTS.md「静态检查」）：
+  //   1) Pylance 的 python.analysis.diagnosticMode 默认 openFilesOnly（只报**已打开**的文件），
+  //      而 Pyright CLI 永远分析 include 下的全部文件；
+  //   2) Pylance 自带常用库的 bundled stubs，Pyright CLI 没有（pandas/scipy 这类未带 py.typed
+  //      的库，CLI 会多报若干"属性不存在"）。
+  "include": ["veriself", "tests"],
+  "exclude": ["**/node_modules", "**/__pycache__", "data", "build", "dist"],
+  "typeCheckingMode": "standard",
+  "venvPath": ".",
+  "venv": ".venv"
+}

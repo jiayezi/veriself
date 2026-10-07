@@ -1,0 +1,21 @@
+# subject.sleep_need_deviation_daily —— 睡眠缺口（第 1 层：上游指标 − 主体需求）
+metric_id: subject.sleep_need_deviation_daily
+version: 1
+status: active
+owner: qingping
+display_name: 当日睡眠需求偏差
+synonyms: [睡眠偏差, 睡够了没, sleep need deviation]
+definition: 当日实际睡眠时长减去个体睡眠需求（小时）；正数表示睡够，负数表示欠觉。
+unit: hour
+direction: neutral
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: no_pii
+formula_sql: |
+  metric('subject.sleep_duration_daily') - dim_subject.sleep_need_h
+lineage:
+  sources: [dim_subject.sleep_need_h]
+  upstream_metrics: [subject.sleep_duration_daily]

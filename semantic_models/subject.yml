@@ -1,0 +1,19 @@
+# 主体维度语义模型：dim_subject 的 SCD2 当前版本（is_current = TRUE）→ subject_current 视图。
+# 列只有 name（无 channel/agg/expr）：它们是维度列，不参与日聚合。
+# 注意：subject_id 是实体键（entity），不在这里重复声明。
+model_id: subject
+table: dim_subject
+type: dimension
+entity: subject_id
+alias: s
+columns:
+  - name: name
+    description: 姓名（PII）
+  - name: birth_date
+    description: 出生日期（PII）
+  - name: sleep_need_h
+    description: 个体睡眠需求（小时）
+  - name: base_weight_kg
+    description: 基础体重（kg）
+  - name: timezone
+    description: 时区（PII）

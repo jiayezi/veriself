@@ -1,0 +1,25 @@
+# subject.avg_resting_hr_7d —— 近 7 日静息心率均值（第 0 层：滚动窗口）
+metric_id: subject.avg_resting_hr_7d
+version: 1
+status: active
+owner: qingping
+display_name: 近7日静息心率
+synonyms: [静息心率, 安静心率, resting heart rate]
+definition: 近 7 日（含当日）静息心率均值（bpm）；窗口按有观测的日期滚动，缺测日不占位。
+unit: count
+direction: lower_better
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: aggregate_min5
+formula_sql: |
+  avg(fact_observation.resting_hr) OVER (
+    PARTITION BY subject_id
+    ORDER BY date_key
+    ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+  )
+lineage:
+  sources: [fact_observation.resting_hr]
+  upstream_metrics: []

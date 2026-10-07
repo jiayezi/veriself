@@ -1,0 +1,23 @@
+# subject.focus_score_weekly —— 周专注度（第 1 层：上游指标按自然周聚合）
+# grain=week + bucket：物化器自动做桶内聚合（mean）并取桶内最后一个有数据的日期为 date_key。
+metric_id: subject.focus_score_weekly
+version: 1
+status: active
+owner: qingping
+display_name: 周专注度
+synonyms: [这周专注度, 周专注得分, weekly focus]
+definition: 自然周（ISO 周，周一起算）内各日专注度的均值；只在该周最后一个有数据的日期落一行，date_key 为该日期。
+unit: score
+direction: higher_better
+agg: mean
+grain: week
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: aggregate_min5
+formula_sql: metric('subject.focus_score_daily')
+bucket:
+  agg: mean
+lineage:
+  sources: []
+  upstream_metrics: [subject.focus_score_daily]

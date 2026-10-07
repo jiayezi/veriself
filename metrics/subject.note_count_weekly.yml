@@ -1,0 +1,23 @@
+# subject.note_count_weekly —— 周笔记数（第 0 层：事件视图逻辑列按自然周求和）
+# grain=week + bucket：物化器自动做桶内聚合（sum）并取桶内最后一个有事件的日期为 date_key。
+metric_id: subject.note_count_weekly
+version: 1
+status: active
+owner: qingping
+display_name: 周笔记数
+synonyms: [这周记了几条, 周笔记数, weekly notes]
+definition: 自然周（ISO 周，周一起算）内 note 类型事件的条数之和；只在该周最后一个有事件的日期落一行，date_key 为该日期。
+unit: count
+direction: neutral
+agg: sum
+grain: week
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: owner_only
+formula_sql: fact_event.note_count
+bucket:
+  agg: sum
+lineage:
+  sources: [fact_event.note_count]
+  upstream_metrics: []

@@ -1,0 +1,21 @@
+# subject.deep_sleep_ratio_daily —— 深睡占比（第 0 层：两个观测通道相除）
+metric_id: subject.deep_sleep_ratio_daily
+version: 1
+status: active
+owner: qingping
+display_name: 深睡占比
+synonyms: [深睡比例, 深度睡眠占比, deep sleep ratio]
+definition: 当日深睡时长 ÷ 当日睡眠时长；睡眠时长为 0 或缺失时不产出数据行。
+unit: ratio
+direction: higher_better
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: no_pii
+formula_sql: |
+  round(fact_observation.deep_sleep_hours / nullif(fact_observation.sleep_hours, 0), 4)
+lineage:
+  sources: [fact_observation.deep_sleep_hours, fact_observation.sleep_hours]
+  upstream_metrics: []

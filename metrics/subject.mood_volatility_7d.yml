@@ -1,0 +1,25 @@
+# subject.mood_volatility_7d —— 近 7 日情绪波动（第 1 层：上游指标 + 滚动标准差）
+metric_id: subject.mood_volatility_7d
+version: 1
+status: active
+owner: qingping
+display_name: 近7日情绪波动
+synonyms: [情绪波动, 心情起伏, mood volatility]
+definition: 近 7 日（含当日）情绪得分的总体标准差，数值越大情绪越不稳定。
+unit: score
+direction: lower_better
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: no_pii
+formula_sql: |
+  stddev_pop(metric('subject.mood_score_daily')) OVER (
+    PARTITION BY subject_id
+    ORDER BY date_key
+    ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+  )
+lineage:
+  sources: []
+  upstream_metrics: [subject.mood_score_daily]

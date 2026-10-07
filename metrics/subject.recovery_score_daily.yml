@@ -1,0 +1,25 @@
+# subject.recovery_score_daily —— 恢复度（第 0 层：静息心率 + HRV 归一化）
+metric_id: subject.recovery_score_daily
+version: 1
+status: active
+owner: qingping
+display_name: 当日恢复度
+synonyms: [恢复度, 恢复得分, recovery score]
+definition: 当日恢复度 0-100 = 60% 静息心率分（70bpm 为满分基准，越低越高）+ 40% HRV 分（20ms 起线性到 80ms 满分）；两项任一缺失则不产出数据行。
+unit: score
+direction: higher_better
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: owner_only
+formula_sql: |
+  CASE
+    WHEN fact_observation.resting_hr IS NOT NULL AND fact_observation.hrv IS NOT NULL THEN
+      round(100 * (0.6 * least(greatest((70 - fact_observation.resting_hr) / 30.0, 0), 1)
+                 + 0.4 * least(greatest((fact_observation.hrv - 20) / 60.0, 0), 1)), 2)
+  END
+lineage:
+  sources: [fact_observation.resting_hr, fact_observation.hrv]
+  upstream_metrics: []

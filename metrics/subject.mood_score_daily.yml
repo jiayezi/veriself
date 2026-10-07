@@ -1,0 +1,21 @@
+# subject.mood_score_daily —— 情绪得分（第 0 层）
+metric_id: subject.mood_score_daily
+version: 1
+status: active
+owner: qingping
+display_name: 当日情绪得分
+synonyms: [情绪, 心情得分, mood score]
+definition: 当日情绪得分 0-100（mood_score 通道均值，含季节项）；无观测的日期不产出数据行。
+unit: score
+direction: higher_better
+agg: mean
+grain: day
+entity: subject
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
+allowed_filters: [date.between, date.last_n_days, date.month]
+rls_policy: owner_only
+formula_sql: |
+  fact_observation.mood_score
+lineage:
+  sources: [fact_observation.mood_score]
+  upstream_metrics: []
