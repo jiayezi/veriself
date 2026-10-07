@@ -51,3 +51,68 @@ uv run python -m pytest tests -q
 ## 报告问题
 
 请附上：`veriself query` 的完整命令、返回的拒绝 `reason`（如果有）、以及 `veriself audit --limit 1` 的输出。审计头就是这个项目的"可复现最小用例"。
+
+## 发布
+
+发布走 [`.github/workflows/release.yml`](.github/workflows/release.yml)，**Trusted Publishing（OIDC），不需要任何 token**。
+触发方式是**在 GitHub 上发布一个 Release**。
+
+### 一次性配置（只需做一次）
+
+1. **PyPI 账号**：注册 [pypi.org](https://pypi.org)，并**开启 2FA**（不开启无法上传）。
+2. **配置 pending publisher**（项目还不存在时用这个；Account → Publishing → GitHub）：
+
+   | 字段 | 填什么 |
+   | --- | --- |
+   | PyPI Project Name | `veriself` |
+   | Owner | `jiayezi` |
+   | Repository name | `veriself` |
+   | Workflow name | `release.yml` |
+   | Environment name | `pypi` |
+
+   ⚠️ **环境名必须与工作流里 `publish` job 的 `environment: pypi` 一致**，否则 OIDC 校验失败。
+   若这一栏留空，请把工作流里那一行删掉。
+
+   ⚠️ pending publisher **不会预留包名**（PyPI 官方文档明确："does not create a project or reserve
+   a project's name until it is actually used to publish"）。真正占住 `veriself` 这个名字的，
+   只有**第一次成功发布**；期间若被别人抢注，这个 pending publisher 会失效。
+
+### 每次发布的步骤
+
+1. 改 `pyproject.toml` 的 `version`（例如 `0.1.0` → `0.1.1`），提交。
+2. 打一个**与版本号一致**的 tag 并推送：`git tag v0.1.1 && git push origin v0.1.1`。
+   （工作流会校验 tag 与 `pyproject` 版本一致，不一致直接失败——避免发错版本号。）
+3. 在 GitHub 上基于该 tag **发布 Release**。
+4. 工作流会依次：跑全量测试 → `uv build` → **把 wheel 装进干净 venv 跑 `synth` + `demo`** → 用 OIDC 发布到 PyPI。
+
+### 本地预演（推荐先做一次）
+
+Workflow 之外也可以本地演练，用 TestPyPI（**需要单独注册账号**，与 PyPI 不通用）：
+
+```bash
+uv build
+uv publish --dry-run                                  # 只校验，不上传
+uv publish --publish-url https://test.pypi.org/legacy/ --token pypi-你的TestPyPI令牌
+```
+
+然后装一遍验证（**这一步能抓到"装完不能用"这类问题**）：
+
+```bash
+uv venv /tmp/probe
+uv pip install --python /tmp/probe/bin/python \
+  --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ veriself
+/tmp/probe/bin/veriself metrics list          # 必须能列出 18 个指标
+```
+
+### 三条不可逆的红线
+
+| 规则 | 说明 |
+| --- | --- |
+| 版本号 + 文件名不可重用 | 传过 `veriself-0.1.0` 后**永久**不能再用该版本号（删了也不行，会 `400 File already exists`），只能发新版本 |
+| 只能 yank，不能撤回 | 出问题可以 yank（`pip install` 默认不再选它），但包仍在 PyPI 上可被显式安装 |
+| 名字归一化 | PyPI 把 `veriself` / `VeriSelf` / `veri_self` / `veri-self` 视为冲突，占住一个即守住变体 |
+
+> 发布相关的不变量由 `tests/test_packaging.py` 守着（`force-include` 是否把契约带进 wheel、
+> 安装布局下路径能否回退、入口点是否可导入）。改 `pyproject.toml` 的打包配置或 `config.py`
+> 的路径常量后，务必跑 `uv run python -m pytest tests/test_packaging.py`。

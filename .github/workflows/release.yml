@@ -1,0 +1,119 @@
+# 发布到 PyPI：Trusted Publishing，全程不需要任何 token。
+#
+# 触发：在 GitHub 上发布一个 Release（on: release: published）。
+# 认证：GitHub Actions 的 OIDC（id-token: write）——uv 自行取工作流的 OIDC token
+#       去换 PyPI 的短期凭据，因此**仓库里不存任何密钥**。
+#
+# 首次使用前须在 PyPI 配置一次 **pending publisher**（Account → Publishing → GitHub）：
+#
+#   | 字段              | 填什么                                    |
+#   |-------------------|-------------------------------------------|
+#   | PyPI Project Name | veriself                                  |
+#   | Owner             | jiayezi                                   |
+#   | Repository name   | veriself                                  |
+#   | Workflow name     | release.yml                               |
+#   | Environment name  | pypi  ← 必须与下面 publish job 的 environment 一致 |
+#
+# ⚠️ 环境名两边不一致会导致 OIDC 校验失败。若你在 PyPI 表单里留空，
+#    就把 publish job 的 `environment: pypi` 一行删掉。
+#
+# ⚠️ pending publisher **不会预留包名**（PyPI 官方文档明确）：
+#    真正"占住"名字的只有第一次成功发布。
+
+name: release
+
+on:
+  release:
+    types: [published]
+
+# 同一时间只允许一个发布在跑；但不要把进行中的发布取消掉。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- 测试 + 构建
+  # 刻意不给这个 job `id-token: write`：构建阶段既不需要、也不应该具备发布权限。
+  build:
+    name: 测试 → 构建 → wheel 冒烟
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - name: 校验 tag 与 pyproject 版本一致
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import sys
+          import tomllib
+
+          tag = os.environ["TAG"].lstrip("v")
+          version = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["version"]
+          if tag != version:
+              sys.exit(f"tag {tag!r} 与 pyproject 的 version {version!r} 不一致：先改版本号再发")
+          print(f"版本一致：{version}")
+          PY
+
+      - name: 装依赖
+        run: uv sync --extra dev
+
+      - name: 全量测试
+        run: uv run python -m pytest tests
+
+      - name: 构建 sdist + wheel
+        run: uv build
+
+      # 这一步守的是**发布包的可用性**，不是源码的正确性：
+      # metrics/ 与 semantic_models/ 在仓库根、不在包内，要靠 pyproject 的 force-include
+      # 与 config 的布局感知解析才生效。只跑源码测试发现不了这类问题。
+      - name: wheel 冒烟——装进干净 venv，验证"装完就能用"
+        run: |
+          set -euo pipefail
+          uv venv /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python dist/*.whl
+          cd /tmp                      # 让 data/ 落在可写目录，而不是 site-packages
+          /tmp/smoke/bin/veriself metrics list | grep -q 'subject.sleep_debt_7d'
+          /tmp/smoke/bin/veriself synth
+          /tmp/smoke/bin/veriself demo
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- 发布
+  publish:
+    needs: build
+    name: 发布到 PyPI
+    runs-on: ubuntu-latest
+    # 与 PyPI 上配置的 Environment name 一致；也便于在这里加"人工批准"。
+    environment: pypi
+    permissions:
+      id-token: write        # OIDC 换凭据必需；其余权限一律不给
+    steps:
+      - uses: astral-sh/setup-uv@v10
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: uv publish（Trusted Publishing）
+        run: uv publish --trusted-publishing always
+
+      # 想先在 TestPyPI 演练，把上面一行换成：
+      #   uv publish --trusted-publishing always --publish-url https://test.pypi.org/legacy/
+      # 并在 TestPyPI 上另配一个指向同一 workflow 的 pending publisher。
