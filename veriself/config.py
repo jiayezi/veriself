@@ -2,16 +2,51 @@
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from pathlib import Path
 
 # ---------------------------------------------------------------- 路径
-PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
-DATA_DIR: Path = PROJECT_ROOT / "data"
-METRICS_DIR: Path = PROJECT_ROOT / "metrics"
+_PKG_DIR: Path = Path(__file__).resolve().parent
+PROJECT_ROOT: Path = _PKG_DIR.parent
+#: 是否处于"源码/editable 布局"（仓库根有 pyproject.toml）。
+#: 安装到 site-packages 后为 False —— 那是**只读**的，数据不能往里写。
+IN_SOURCE_CHECKOUT: bool = (PROJECT_ROOT / "pyproject.toml").is_file()
+
+
+def _resolve_dir(env_var: str, source_dir: Path, packaged_dir: Path) -> Path:
+    """目录解析三分：**环境变量 > 源码布局 > 安装后的包内默认值**。
+
+    为什么要三分：`metrics/` 与 `semantic_models/` 在仓库根、**不在包内**。
+    wheel 通过 `pyproject.toml` 的 `force-include` 把它们带到 `veriself/_defaults/`，
+    但安装后 `PROJECT_ROOT` 变成 `site-packages`，`site-packages/metrics` 并不存在——
+    所以必须能回退到包内那份默认值，否则 `pip install` 的用户跑 CLI 会拿到 exit 5。
+    """
+    override = os.environ.get(env_var)
+    if override:
+        return Path(override)
+    return source_dir if source_dir.is_dir() else packaged_dir
+
+
+METRICS_DIR: Path = _resolve_dir(
+    "VERISELF_METRICS_DIR", PROJECT_ROOT / "metrics", _PKG_DIR / "_defaults" / "metrics"
+)
+#: 语义模型目录（不在 metrics/ 下，避免被 load_contracts 扫描到）。
+#: 放在 config 里作为**唯一裁决点**，语义层只引用它、不再各自拼路径。
+SEMANTIC_MODELS_DIR: Path = _resolve_dir(
+    "VERISELF_SEMANTIC_MODELS_DIR",
+    PROJECT_ROOT / "semantic_models",
+    _PKG_DIR / "_defaults" / "semantic_models",
+)
+#: 数仓文件所在目录。源码布局下仍是 `仓库根/data`（**行为与改动前逐字一致**）；
+#: 安装后写到当前工作目录下的 `data/`（可写、可预期），可用 `VERISELF_DATA_DIR` 覆盖。
+DATA_DIR: Path = Path(
+    os.environ.get("VERISELF_DATA_DIR")
+    or (PROJECT_ROOT / "data" if IN_SOURCE_CHECKOUT else Path.cwd() / "data")
+)
 WAREHOUSE_PATH: Path = DATA_DIR / "warehouse.duckdb"
 # 就地取包内文件：不要从 PROJECT_ROOT 拼回包目录（那样包改名/移动就会断）
-SCHEMA_SQL_PATH: Path = Path(__file__).resolve().parent / "warehouse" / "schema.sql"
+SCHEMA_SQL_PATH: Path = _PKG_DIR / "warehouse" / "schema.sql"
 
 # ---------------------------------------------------------------- 合成数据
 # 3 年日粒度数据，固定种子保证可复现

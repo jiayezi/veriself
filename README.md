@@ -3,9 +3,9 @@
 **面向 AI agent 的类型化指标执行层。**
 LLM 不能写 SQL，只能组合已注册的指标——每个数字都带口径版本、粒度、血缘与审计头。
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
-[![tests](https://img.shields.io/badge/tests-373%20passed-brightgreen.svg)](#现状)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/jiayezi/veriself/blob/main/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://github.com/jiayezi/veriself/blob/main/pyproject.toml)
+[![tests](https://img.shields.io/badge/tests-379%20passed-brightgreen.svg)](#现状)
 
 ---
 
@@ -13,7 +13,7 @@ LLM 不能写 SQL，只能组合已注册的指标——每个数字都带口径
 
 > **下面的输出是实跑的，不是手写的**：本机 `veriself synth && veriself demo` 原文，仅删除整行
 > （删除处标 `…`）与行尾空格。面板偏宽是因为输出被重定向时宽度固定为 120 列
-> （见 [`interfaces/render.py`](veriself/interfaces/render.py) 的 `_NON_TTY_WIDTH`）。
+> （见 [`interfaces/render.py`](https://github.com/jiayezi/veriself/blob/main/veriself/interfaces/render.py) 的 `_NON_TTY_WIDTH`）。
 
 真实用户在 MCP 客户端里说的是一句自然语言（*"我最近睡眠债有多严重？"*）。把它翻成下面这个
 **结构化查询对象**是客户端的事——`veriself` 只接受这个对象，**没有任何参数能传原生语句**。
@@ -188,7 +188,7 @@ $ veriself demo
 - **还不是领域无关的。** 执行引擎（contract → compile → enforce → audit）本身与领域无关，
   但**物理模型映射目前硬接在"个人/纵向数据"这个形态上**（日粒度、`(date_key, subject_id)` 骨架、
   声明的 JOIN 路径仍是模块级常量）。泛化成 `domains/*.yml` 描述符是
-  **[路线图 v0.2 第 5 项](docs/03-路线图.md)**——在此之前，换一个领域意味着改引擎代码。
+  **[路线图 v0.2 第 5 项](https://github.com/jiayezi/veriself/blob/main/docs/03-路线图.md)**——在此之前，换一个领域意味着改引擎代码。
 - **无遥测、无云、无账号。** 一个文件，local-first。
 
 ---
@@ -238,8 +238,8 @@ CLI (veriself)   MCP server   ← LLM 仅有的两个入口
       synth/    确定性合成主体数据（含植入的潜在结构）
 ```
 
-完整接口契约：[`docs/00-接口契约.md`](docs/00-接口契约.md)
-指标清单：[`docs/01-指标清单.md`](docs/01-指标清单.md)
+完整接口契约：[`docs/00-接口契约.md`](https://github.com/jiayezi/veriself/blob/main/docs/00-接口契约.md)
+指标清单：[`docs/01-指标清单.md`](https://github.com/jiayezi/veriself/blob/main/docs/01-指标清单.md)
 
 ### 与业界术语的对应关系
 
@@ -317,7 +317,7 @@ MCP（stdio）可用于任何 MCP 客户端：
 | 双时间轴 | 同一 `(metric, subject, date_key)` 在当前版本内多行有效 = **0**；值变化才留痕 |
 | 周内排序 | `date.day_of_week` 按星期序（1→7）；`date.weekday` 是名字，按它排序是字母序 |
 
-逐文件用例明细、改动后必须满足的验收条件、以及各模块的边界，见 [`AGENTS.md`](AGENTS.md)。
+逐文件用例明细、改动后必须满足的验收条件、以及各模块的边界，见 [`AGENTS.md`](https://github.com/jiayezi/veriself/blob/main/AGENTS.md)。
 
 **已知限制**：
 
@@ -331,4 +331,4 @@ MCP（stdio）可用于任何 MCP 客户端：
 
 ## 许可证
 
-Apache-2.0 — 见 [LICENSE](LICENSE)。
+Apache-2.0 — 见 [LICENSE](https://github.com/jiayezi/veriself/blob/main/LICENSE)。

@@ -42,6 +42,10 @@
    审计头 `enforced_checks` 记录**实际执行过**的校验（按规范顺序输出），
    **不是**回显 `config.ENFORCED_CHECKS`——别把它改回常量，那会让审计栏变成空头支票。
 3. **`config.py` 与 `contract_hash.py` 不得改**（前者是所有约定的事实来源，后者三方共用）。
+   ⚠️ **唯一例外是 `config.py` 里的"路径"常量**：`METRICS_DIR` / `SEMANTIC_MODELS_DIR` / `DATA_DIR`
+   是**布局感知**的（源码布局 → 仓库根；`pip install` 后 → 包内 `_defaults/` 或当前工作目录），
+   为的是让装好的包可用。改它们必须先看 `tests/test_packaging.py`。
+   角色 / 枚举 / 校验链 / 拒绝前缀等**约定**仍然冻结。
 4. **双时间轴不得退化为覆盖写**：写入前 `UPDATE ... SET valid_to = now()` 关闭旧行，
    **禁止物理 DELETE**（删了就永久失去 as-of 复现能力）。
 5. **不许为了让测试/演示好看而放宽强制校验或隐私闸门**。
@@ -139,6 +143,7 @@ uv run veriself demo                                        # 一条命令跑通
 | `test_interfaces.py` | CLI 退出码、MCP schema 封闭性、源码扫描（无 SQL 拼接） |
 | `test_synth_fidelity.py` | 统计显著性（植入效应存在 / 未植入效应不存在）+ 事件唯一性 + **重跑幂等** |
 | `test_materializer.py` | 数值语义（滚动窗口、NaN 过滤、幂等合并、通道隔离、声明式桶） |
+| `test_packaging.py` | 发布可用性：`force-include` 是否把契约带进 wheel、安装布局下路径能否回退、入口点可导入 |
 
 **改动后必须做到**：全量测试全绿 + `veriself demo` 退出码 0。
 数值类改动要更新 `test_warehouse_contracts.py` 里的黄金值断言——那是唯一能挡住数值漂移的防线。
@@ -201,6 +206,14 @@ metrics/subject.sleep_debt_7d.yml                    # 一个完整契约
   部分索引，`CREATE TABLE IF NOT EXISTS` 遇旧表静默跳过）。升级方式 = **重建库**
   （`veriself synth && veriself init`）；需要就地升级时用独立语句（如 `CREATE UNIQUE INDEX IF NOT EXISTS`，
   它不被跳过、且对脏数据报错）。
+- **`metrics/` 与 `semantic_models/` 在仓库根、不在包内** → 发布了要能用的包，靠两处配合：
+  `pyproject.toml` 的 `force-include` 把它们放进 `veriself/_defaults/`，
+  `config._resolve_dir` 再做「环境变量 > 源码目录 > 包内默认值」三分。
+  **改其一必须跑 `pytest tests/test_packaging.py`**，否则 `pip install` 的用户会拿到
+  exit 5（`指标契约目录不存在：…/site-packages/metrics`）；`semantic_model.py` 只引用
+  `config.SEMANTIC_MODELS_DIR`，**不要**再各自拼 `PROJECT_ROOT/...`。
+  另：安装后 `data/` 落在**当前工作目录**（可写、可预期），不再写 site-packages；可用
+  `VERISELF_METRICS_DIR` / `VERISELF_SEMANTIC_MODELS_DIR` / `VERISELF_DATA_DIR` 覆盖。
 - **`fact_observation` 的主键是业务自然键 `(subject_id, observed_at, channel)`**，
   `observation_id` 只是带唯一索引的普通列。`fact_event` **刻意没有自然键唯一约束**——
   同一分钟两笔消费是合法数据。
