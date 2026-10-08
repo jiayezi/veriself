@@ -28,6 +28,11 @@ import duckdb
 import pytest
 import yaml
 
+
+def _naive(*parts: int) -> dt.datetime:
+    """构造 naïve 墙钟时间。DuckDB TIMESTAMP 不带时区，读回来比较时必须仍是 naïve。"""
+    return dt.datetime(*parts, tzinfo=dt.UTC).replace(tzinfo=None)
+
 from veriself import config
 from veriself.contract_hash import GOLDEN_CONTRACT, GOLDEN_CONTRACT_HASH, contract_hash
 from veriself.semantic import (
@@ -125,10 +130,10 @@ def _make_conn(with_context_key: bool = True) -> duckdb.DuckDBPyConnection:
     subjects = []
     for index in range(1, 6):
         subjects.append((index, f"S00{index}", "demo", dt.date(1990, 1, 1), 7.75, 70.0,
-                         "Asia/Shanghai", dt.datetime(2026, 1, 1), None, True, 1, dt.datetime(2026, 1, 1)))
+                         "Asia/Shanghai", _naive(2026, 1, 1), None, True, 1, _naive(2026, 1, 1)))
     subjects.append((99, "S001", "old", dt.date(1990, 1, 1), 99.0, 70.0,
-                     "Asia/Shanghai", dt.datetime(2020, 1, 1), dt.datetime(2025, 12, 31), False, 1,
-                     dt.datetime(2020, 1, 1)))
+                     "Asia/Shanghai", _naive(2020, 1, 1), _naive(2025, 12, 31), False, 1,
+                     _naive(2020, 1, 1)))
     conn.executemany("INSERT INTO dim_subject VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", subjects)
 
     # 1) 日粒度 mean（owner_only）；S002 有巨值，用于验证 owner 行级过滤
@@ -157,7 +162,7 @@ def _make_conn(with_context_key: bool = True) -> duckdb.DuckDBPyConnection:
     _insert(conn, "subject.pii_demo", "S001", JAN1, 42.0)
     # 8) 版本：v2 当前（5.0）、v2 历史（99.0，valid_to 非 NULL）、v1 残留（100.0，valid_to NULL）
     _insert(conn, "subject.versioned", "S001", JAN1, 5.0, version=2)
-    _insert(conn, "subject.versioned", "S001", JAN1, 99.0, version=2, valid_to=dt.datetime(2026, 2, 1))
+    _insert(conn, "subject.versioned", "S001", JAN1, 99.0, version=2, valid_to=_naive(2026, 2, 1))
     _insert(conn, "subject.versioned", "S001", JAN1, 100.0, version=1)
     # 9) dim_subject 维度（非 PII）
     _insert(conn, "subject.need_demo", "S001", JAN1, 6.0)

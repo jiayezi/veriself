@@ -143,7 +143,8 @@ def _coerce_ts(value: Any) -> _dt.datetime | None:
             return value.astimezone(_dt.UTC).replace(tzinfo=None)
         return value
     if isinstance(value, _dt.date):
-        return _dt.datetime(value.year, value.month, value.day)
+        # 日期没有钟点，按 UTC 午夜理解，再去掉 tzinfo：DuckDB TIMESTAMP 只收 naïve。
+        return _dt.datetime(value.year, value.month, value.day, tzinfo=_dt.UTC).replace(tzinfo=None)
     if isinstance(value, str):
         parsed = _dt.datetime.fromisoformat(value.strip())
         return _coerce_ts(parsed)

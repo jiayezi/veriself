@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`contract_hash` 的唯一权威实现（Lead 所有）。
 
 契约见 `docs/00-接口契约.md` 第 4 节：对规范化后的契约文本取 sha256，前缀 `sha256:`，取前 16 位 hex。
@@ -12,7 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 HASH_PREFIX = "sha256:"
 HASH_HEX_LEN = 16

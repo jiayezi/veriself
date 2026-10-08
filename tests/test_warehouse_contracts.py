@@ -26,6 +26,11 @@ import duckdb
 import pytest
 import yaml
 
+
+def _naive(*parts: int) -> dt.datetime:
+    """构造 naïve 墙钟时间。DuckDB TIMESTAMP 不带时区，读回来比较时必须仍是 naïve。"""
+    return dt.datetime(*parts, tzinfo=dt.UTC).replace(tzinfo=None)
+
 from veriself import config
 from veriself.contract_hash import (
     GOLDEN_CONTRACT,
@@ -616,12 +621,12 @@ def _insert_observation(conn, *, obs_id: int = 1, channel: str = "sleep_hours", 
         [
             obs_id,
             GOLDEN_SUBJECT,
-            dt.datetime(2026, 1, 1, 7, 30),
+            _naive(2026, 1, 1, 7, 30),
             20260101,
             channel,
             value,
             "wearable",
-            dt.datetime(2026, 1, 1, 7, 31),
+            _naive(2026, 1, 1, 7, 31),
         ],
     )
 
@@ -648,12 +653,12 @@ def test_observation_distinguishes_by_channel_and_time(conn) -> None:
         [
             3,
             GOLDEN_SUBJECT,
-            dt.datetime(2026, 1, 1, 8, 0),   # 换时间戳
+            _naive(2026, 1, 1, 8, 0),   # 换时间戳
             20260101,
             "sleep_hours",
             8.0,
             "wearable",
-            dt.datetime(2026, 1, 1, 8, 1),
+            _naive(2026, 1, 1, 8, 1),
         ],
     )
     assert conn.execute("SELECT count(*) FROM fact_observation").fetchone()[0] == 3
@@ -781,8 +786,8 @@ def _demo_contract(version: int) -> dict:
 
 
 def test_materialize_metric_keeps_double_timeline(conn) -> None:
-    t1 = dt.datetime(2026, 1, 1, 0, 0, 0)
-    t2 = dt.datetime(2026, 2, 1, 0, 0, 0)
+    t1 = _naive(2026, 1, 1, 0, 0, 0)
+    t2 = _naive(2026, 2, 1, 0, 0, 0)
     values = [
         {"subject_id": "S001", "date_key": 20260101, "value": 1.0, "computed_at": t1},
         {"subject_id": "S001", "date_key": 20260102, "value": 2.0, "computed_at": t1},
@@ -816,7 +821,7 @@ def test_materialize_metric_keeps_double_timeline(conn) -> None:
 
 
 def test_materialize_metric_is_idempotent_for_same_computed_at(conn) -> None:
-    computed_at = dt.datetime(2026, 3, 1, 12, 0, 0)
+    computed_at = _naive(2026, 3, 1, 12, 0, 0)
     value = [{"subject_id": "S001", "date_key": 20260301, "value": 3.0, "computed_at": computed_at}]
     assert materialize_metric(conn, "subject.demo", value, _demo_contract(1)) == 1
     again = [{"subject_id": "S001", "date_key": 20260301, "value": 4.0, "computed_at": computed_at}]
@@ -846,7 +851,7 @@ def test_materialize_metric_skips_null_nan_inf_and_deduplicates(conn) -> None:
 
 
 def test_write_audit_appends_with_incrementing_id(conn) -> None:
-    queried_at = dt.datetime(2026, 5, 1, 8, 30, 0)
+    queried_at = _naive(2026, 5, 1, 8, 30, 0)
     assert (
         write_audit(
             conn,
@@ -1145,7 +1150,7 @@ def test_golden_week_month_metric_values(golden_warehouse, metric_id: str) -> No
     for (date_key, value), (expected_key, expected_value) in zip(actual, expected):
         assert date_key == expected_key, metric_id
         assert value == pytest.approx(expected_value, abs=1e-6), metric_id
-        day = dt.datetime.strptime(str(date_key), "%Y%m%d").date()
+        day = _parse_date_key(date_key)
         assert GOLDEN_START <= day < GOLDEN_START + dt.timedelta(days=GOLDEN_DAYS)
 
 
@@ -1155,7 +1160,8 @@ def test_golden_week_month_metric_values(golden_warehouse, metric_id: str) -> No
 
 
 def _parse_date_key(date_key: int) -> dt.date:
-    return dt.datetime.strptime(str(date_key), "%Y%m%d").date()
+    text = f"{date_key:08d}"
+    return dt.date(int(text[:4]), int(text[4:6]), int(text[6:8]))
 
 
 def _bucket_interval(date_key: int, grain: str) -> tuple[dt.date, dt.date]:
