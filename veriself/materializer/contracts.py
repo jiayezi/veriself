@@ -16,7 +16,9 @@ __all__ = ["_bucket_agg", "_field", "_grain", "_metric_id", "_upstreams"]
 
 
 def _field(contract: Any, name: str, default: Any = None) -> Any:
-    """兼容 Pydantic 模型与普通 dict 两种契约表示。"""
+    """兼容 Pydantic 模型与普通 dict 两种契约表示。
+    产品路径只走 Pydantic，测试路径只走普通 dict。
+    """
     if isinstance(contract, Mapping):
         return contract.get(name, default)
     return getattr(contract, name, default)

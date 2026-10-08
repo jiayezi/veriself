@@ -107,7 +107,10 @@ def build_merge_sql(
 
     三个步骤合起来恰好覆盖三种情形，且无变化时①③影响 0 行、②插入 0 行 → **纯重算零写放大**。
 
-    返回 `(statements, temp_table)`；`statements` 需按顺序执行。
+    返回 `(statements, temp_table)`；`statements` 需按顺序执行，顺序与
+    `_MERGE_COUNT_KEYS` 一一对应。DuckDB 对这四条语句各返回一行 `Count`：
+    落临时表的 Count 是本批次产出行数（等于合并后的有效行数），三步 DML 的
+    Count 是各自影响的行数。`materialize_all` 用这些数填统计，不再回表拉键。
     `valid_from` 统一用**批次时间戳**，使同批次行可整体识别、as-of 可按批次切分。
     """
     metric_id = _contracts._metric_id(contract)
@@ -169,6 +172,7 @@ WHERE NOT EXISTS (
         "  )"
     )
 
+    # 顺序即 _MERGE_COUNT_KEYS。增删或调换语句时必须同步改那个元组。
     statements = [
         (create, []),
         (close_changed, [batch_ts]),
@@ -209,6 +213,11 @@ WHERE daily_value IS NOT NULL AND isfinite(daily_value)
 """
 
 
+# 与 build_merge_sql 返回的 statements 顺序绑定。
+# live = 临时表行数；其余三项 = 对应 DML 的影响行数。
+_MERGE_COUNT_KEYS = ("live", "closed_changed", "inserted", "closed_vanished")
+
+
 def _batch_timestamp(explicit: Any = None) -> str:
     """批次时间戳：同一批全部行使用同一个值（便于按批次切分 as-of）。"""
     if explicit is not None:
@@ -216,21 +225,3 @@ def _batch_timestamp(explicit: Any = None) -> str:
     import datetime as _dt
 
     return _dt.datetime.now(_dt.UTC).replace(tzinfo=None).isoformat(sep=" ")
-
-
-def _live_key_set(conn: Any, metric_id: str, version: int) -> set[tuple[str, int]]:
-    rows = conn.execute(
-        "SELECT subject_id, date_key FROM fact_metric_value"
-        " WHERE metric_id = ? AND metric_version = ? AND valid_to IS NULL",
-        [metric_id, version],
-    ).fetchall()
-    return {(str(r[0]), int(r[1])) for r in rows}
-
-
-def _history_count(conn: Any, metric_id: str, version: int) -> int:
-    rows = conn.execute(
-        "SELECT count(*) FROM fact_metric_value"
-        " WHERE metric_id = ? AND metric_version = ? AND valid_to IS NOT NULL",
-        [metric_id, version],
-    ).fetchall()
-    return int(rows[0][0]) if rows else 0

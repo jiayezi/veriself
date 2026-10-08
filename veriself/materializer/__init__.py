@@ -48,8 +48,6 @@ build_insert_sql = _merge.build_insert_sql
 _hash_for = _merge._hash_for
 _model_to_mapping = _merge._model_to_mapping
 _batch_timestamp = _merge._batch_timestamp
-_live_key_set = _merge._live_key_set
-_history_count = _merge._history_count
 
 _row_expression = _sqlbuild._row_expression
 _touches = _sqlbuild._touches
@@ -79,6 +77,13 @@ __all__ = [
     "materialize_all",
     "source_aliases",
 ]
+
+
+def _affected_count(rows: Any) -> int:
+    """读取 DuckDB DDL/DML 结果里的单行 Count。空结果按 0。"""
+    if not rows:
+        return 0
+    return int(rows[0][0])
 
 
 # ------------------------------------------------------------------ 对外入口
@@ -112,54 +117,48 @@ def materialize_all(
     for depth, layer in enumerate(layers):
         for metric_id in layer:
             contract = contracts[metric_id]
-            version = int(_contracts._field(contract, "version", 1) or 1)
-
-            before_keys = _merge._live_key_set(conn, metric_id, version)
-            before_history = _merge._history_count(conn, metric_id, version)
-            before_total = len(before_keys) + before_history
 
             statements, temp = _merge.build_merge_sql(
                 contract, contracts, batch_ts=stamp, models=resolved
             )
+            # 四条语句的 DuckDB Count 与 _MERGE_COUNT_KEYS 对齐。
+            # 不在合并前后把有效键 / 历史行拉回 Python：那些数只为填统计，
+            # 而本批次产出行数和三步 DML 的影响行数引擎已经返回。
+            counts: list[int] = []
             try:
                 for sql_stmt, sql_params in statements:
-                    _views._exec(conn, sql_stmt, sql_params)
+                    counts.append(_affected_count(_views._exec(conn, sql_stmt, sql_params)))
             finally:
                 _views._exec(conn, f"DROP TABLE IF EXISTS {temp}")
 
-            after_keys = _merge._live_key_set(conn, metric_id, version)
-            after_history = _merge._history_count(conn, metric_id, version)
-            after_total = len(after_keys) + after_history
-
-            # ⚠️ 统计口径（三个动作互不重叠，且与表的真实行数变化可逐项对账）：
-            #   ① closed_changed  = 历史行增量（关闭变化键，不新增行）
-            #   ② inserted        = 总行数增量（只有 INSERT 会增加总行数；关闭行只改 valid_to）
-            #   ③ closed_vanished = 合并前后有效键集的差（未产出的键被关闭）
-            # 这里踩过两次坑：
-            #   - 从"合并后状态"反推会把"关闭+重插"各计一次；
-            #   - 在总增量里再减一次历史增量会重复扣减（`after_total - before_total` 已含历史增量）。
-            # `tests/test_materializer.py::test_value_change_creates_history` 的对账断言守着它。
-            closed_changed = after_history - before_history
-            inserted = after_total - before_total
-            vanished = len(before_keys - after_keys)
-            unchanged = len(before_keys & after_keys) - closed_changed
+            keys = _merge._MERGE_COUNT_KEYS
+            if len(counts) != len(keys):
+                raise RuntimeError(
+                    f"合并语句应返回 {len(keys)} 个 Count（{', '.join(keys)}），实际 {len(counts)}"
+                )
+            live, closed_changed, inserted, closed_vanished = counts
+            # unchanged = live - inserted：本批次每个键最终都有一行有效，
+            # 插入只覆盖「变化后重插」和「全新键」。前提是同一
+            # (metric, version, subject, date_key) 最多一行有效。
+            # 对账断言：tests/test_materializer.py::test_value_change_creates_history
+            unchanged = live - inserted
 
             stats[metric_id] = {
-                "live": len(after_keys),
-                "inserted": max(0, inserted),
-                "closed_changed": max(0, closed_changed),
-                "closed_vanished": max(0, vanished),
-                "unchanged": max(0, unchanged),
+                "live": live,
+                "inserted": inserted,
+                "closed_changed": closed_changed,
+                "closed_vanished": closed_vanished,
+                "unchanged": unchanged,
             }
             logger.info(
                 "物化完成 layer=%d metric=%s live=%d inserted=%d changed=%d vanished=%d unchanged=%d",
                 depth,
                 metric_id,
-                len(after_keys),
+                live,
                 inserted,
                 closed_changed,
-                vanished,
-                stats[metric_id]["unchanged"],
+                closed_vanished,
+                unchanged,
             )
 
     return stats
