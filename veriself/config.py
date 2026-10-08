@@ -14,29 +14,23 @@ PROJECT_ROOT: Path = _PKG_DIR.parent
 IN_SOURCE_CHECKOUT: bool = (PROJECT_ROOT / "pyproject.toml").is_file()
 
 
-def _resolve_dir(env_var: str, source_dir: Path, packaged_dir: Path) -> Path:
-    """目录解析三分：**环境变量 > 源码布局 > 安装后的包内默认值**。
+def _resolve_dir(env_var: str, default: Path) -> Path:
+    """目录解析：**环境变量 > 包内默认目录**。
 
-    为什么要三分：`metrics/` 与 `semantic_models/` 在仓库根、**不在包内**。
-    wheel 通过 `pyproject.toml` 的 `force-include` 把它们带到 `veriself/_defaults/`，
-    但安装后 `PROJECT_ROOT` 变成 `site-packages`，`site-packages/metrics` 并不存在——
-    所以必须能回退到包内那份默认值，否则 `pip install` 的用户跑 CLI 会拿到 exit 5。
+    契约与 `schema.sql` 一样就地放在包内（`veriself/metrics`、`veriself/semantic_models`）。
+    editable 安装与 wheel 安装的 `__file__` 都指向包目录，因此源码布局和安装布局是同一条路径。
     """
     override = os.environ.get(env_var)
     if override:
         return Path(override)
-    return source_dir if source_dir.is_dir() else packaged_dir
+    return default
 
 
-METRICS_DIR: Path = _resolve_dir(
-    "VERISELF_METRICS_DIR", PROJECT_ROOT / "metrics", _PKG_DIR / "_defaults" / "metrics"
-)
+METRICS_DIR: Path = _resolve_dir("VERISELF_METRICS_DIR", _PKG_DIR / "metrics")
 #: 语义模型目录（不在 metrics/ 下，避免被 load_contracts 扫描到）。
 #: 放在 config 里作为**唯一裁决点**，语义层只引用它、不再各自拼路径。
 SEMANTIC_MODELS_DIR: Path = _resolve_dir(
-    "VERISELF_SEMANTIC_MODELS_DIR",
-    PROJECT_ROOT / "semantic_models",
-    _PKG_DIR / "_defaults" / "semantic_models",
+    "VERISELF_SEMANTIC_MODELS_DIR", _PKG_DIR / "semantic_models"
 )
 #: 数仓文件所在目录。源码布局下仍是 `仓库根/data`（**行为与改动前逐字一致**）；
 #: 安装后写到当前工作目录下的 `data/`（可写、可预期），可用 `VERISELF_DATA_DIR` 覆盖。

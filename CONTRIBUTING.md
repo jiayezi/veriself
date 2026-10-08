@@ -29,7 +29,7 @@ uv run python -m pytest tests -q
 
 ## 新增一个指标
 
-1. 在 `metrics/` 加一个 YAML（字段见契约第 2 节），一个文件一个指标；
+1. 在 `veriself/metrics/` 加一个 YAML（字段见契约第 2 节），一个文件一个指标；
 2. `formula_sql` 里引用的每个 `表.列` 必须出现在 `lineage.sources`；引用的每个上游指标必须出现在 `lineage.upstream_metrics`（用 `metric('...')` 形式）；
 3. 明确 `agg`（跨粒度上卷方式）——**填错会算出错误的数**：睡眠债用 `sum`，专注度用 `mean`；
 4. 在 [`docs/01-指标清单.md`](01-指标清单.md) 补一行；
@@ -113,6 +113,6 @@ uv pip install --python /tmp/probe/bin/python \
 | 只能 yank，不能撤回 | 出问题可以 yank（`pip install` 默认不再选它），但包仍在 PyPI 上可被显式安装 |
 | 名字归一化 | PyPI 把 `veriself` / `VeriSelf` / `veri_self` / `veri-self` 视为冲突，占住一个即守住变体 |
 
-> 发布相关的不变量由 `tests/test_packaging.py` 守着（`force-include` 是否把契约带进 wheel、
-> 安装布局下路径能否回退、入口点是否可导入）。改 `pyproject.toml` 的打包配置或 `config.py`
+> 发布相关的不变量由 `tests/test_packaging.py` 守着（包内契约是否进 wheel、
+> 环境变量能否覆盖路径、入口点是否可导入）。改 `pyproject.toml` 的打包配置或 `config.py`
 > 的路径常量后，务必跑 `uv run python -m pytest tests/test_packaging.py`。

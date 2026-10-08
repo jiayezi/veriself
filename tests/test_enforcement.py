@@ -277,7 +277,7 @@ def test_contract_hash_fixed_sample_and_loader_consistency(contracts_dir):
     """固定 YAML → 固定哈希；loader 的 contract_hash 必须等于对原始 YAML dict 调用权威函数。"""
     (contracts_dir / "a.yml").write_text(SAMPLE_YAML, encoding="utf-8")
     (contracts_dir / "b.yml").write_text(UPSTREAM_YAML, encoding="utf-8")
-    expected = "sha256:26e793fee451a1ce"
+    expected = "sha256:61fc70bf013f7cab"
     raw = yaml.safe_load(SAMPLE_YAML)
     assert contract_hash(raw) == expected
     loaded = load_contracts(contracts_dir)

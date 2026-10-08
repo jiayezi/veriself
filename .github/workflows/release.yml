@@ -76,8 +76,8 @@ jobs:
         run: uv build
 
       # 这一步守的是**发布包的可用性**，不是源码的正确性：
-      # metrics/ 与 semantic_models/ 在仓库根、不在包内，要靠 pyproject 的 force-include
-      # 与 config 的布局感知解析才生效。只跑源码测试发现不了这类问题。
+      # metrics/ 与 semantic_models/ 必须作为包内数据进 wheel。
+      # 只跑源码测试发现不了「装完找不到契约」这类问题。
       - name: wheel 冒烟——装进干净 venv，验证"装完就能用"
         run: |
           set -euo pipefail

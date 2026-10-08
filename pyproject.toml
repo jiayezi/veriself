@@ -50,11 +50,6 @@ veriself = "veriself.interfaces.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["veriself"]
-# 让 wheel 也带上"默认契约"（`metrics/*.yml` 与 `semantic_models/*.yml`）。
-# 现状：这两个目录在仓库根、**不在包内**，所以 `pip install` 拿到的 wheel 里没有它们，
-# 安装后的 CLI 会以 exit 5 报"指标契约目录不存在：…/site-packages/metrics"（实测）。
-# 源仍是仓库根那一份，构建时才复制 → 不产生需要同步的第二份文件。
-force-include = { "metrics" = "veriself/_defaults/metrics", "semantic_models" = "veriself/_defaults/semantic_models" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

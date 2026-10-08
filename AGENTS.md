@@ -11,7 +11,7 @@
 ## 数据链路
 
 ```
-契约 metrics/*.yml
+契约 veriself/metrics/*.yml
   → load_contracts()  校验（引用/枚举/无环/列存在性）
   → materializer      按 lineage 拓扑分层求值 → fact_metric_value（双时间轴）
   → semantic          结构化查询对象 → 编译(sqlglot) → 五条强制校验 → RLS 改写 → 审计头
@@ -20,8 +20,8 @@
 
 | 对象 | 说明 |
 | --- | --- |
-| `metrics/*.yml` | 唯一指标口径来源；改它等于改系统行为（**无需改 Python**） |
-| `semantic_models/*.yml` | **逻辑列定义**（通道→日粒度列、事件逻辑列、维度列 + 表别名）；materializer 与契约校验都从这里读 |
+| `veriself/metrics/*.yml` | 唯一指标口径来源；改它等于改系统行为（**无需改 Python**） |
+| `veriself/semantic_models/*.yml` | **逻辑列定义**（通道→日粒度列、事件逻辑列、维度列 + 表别名）；materializer 与契约校验都从这里读 |
 | `veriself/config.py` | 冻结常量（角色、枚举、校验链、拒绝前缀） |
 | `veriself/contract_hash.py` | **唯一**哈希实现；其他模块必须 import，不得各自实现 |
 | `veriself/warehouse/schema.sql` | **唯一** DDL 来源 |
@@ -42,9 +42,10 @@
    审计头 `enforced_checks` 记录**实际执行过**的校验（按规范顺序输出），
    **不是**回显 `config.ENFORCED_CHECKS`——别把它改回常量，那会让审计栏变成空头支票。
 3. **`config.py` 与 `contract_hash.py` 一般不改**（前者是所有约定的事实来源，后者三方共用）。
-   ⚠️ **唯一例外是 `config.py` 里的"路径"常量**：`METRICS_DIR` / `SEMANTIC_MODELS_DIR` / `DATA_DIR`
-   是**布局感知**的（源码布局 → 仓库根；`pip install` 后 → 包内 `_defaults/` 或当前工作目录），
-   为的是让装好的包可用。改它们必须先看 `tests/test_packaging.py`。
+   ⚠️ **唯一例外是 `config.py` 里的"路径"常量**：`METRICS_DIR` / `SEMANTIC_MODELS_DIR`
+   指向包内 `veriself/metrics` 与 `veriself/semantic_models`（可用环境变量覆盖）；
+   `DATA_DIR` 仍是布局感知的（源码布局 → 仓库根 `data/`；`pip install` 后 → 当前工作目录）。
+   改它们必须先看 `tests/test_packaging.py`。
    角色 / 枚举 / 校验链 / 拒绝前缀等**约定**仍然冻结。
 4. **双时间轴不得退化为覆盖写**：写入前 `UPDATE ... SET valid_to = now()` 关闭旧行，
    **禁止物理 DELETE**（删了就永久失去 as-of 复现能力）。
@@ -66,8 +67,8 @@
 
 | 模块 | 职责 |
 | --- | --- |
-| `metrics/*.yml` | 指标契约（口径/血缘/白名单/RLS/上卷方式） |
-| `semantic_models/*.yml` + `semantic_model.py` | **来源语义模型**：逻辑列定义与加载校验 |
+| `veriself/metrics/*.yml` | 指标契约（口径/血缘/白名单/RLS/上卷方式） |
+| `veriself/semantic_models/*.yml` + `semantic_model.py` | **来源语义模型**：逻辑列定义与加载校验 |
 | `veriself/config.py` | 常量与异常 |
 | `contract_hash.py` | 契约哈希（审计头可信的基础） |
 | `sqlrefs.py` | **唯一**公式解析/重写实现（sqlglot AST；materializer 与 semantic 共用） |
@@ -143,7 +144,7 @@ uv run veriself demo                                        # 一条命令跑通
 | `test_interfaces.py` | CLI 退出码、MCP schema 封闭性、源码扫描（无 SQL 拼接） |
 | `test_synth_fidelity.py` | 统计显著性（植入效应存在 / 未植入效应不存在）+ 事件唯一性 + **重跑幂等** |
 | `test_materializer.py` | 数值语义（滚动窗口、NaN 过滤、幂等合并、通道隔离、声明式桶） |
-| `test_packaging.py` | 发布可用性：`force-include` 是否把契约带进 wheel、安装布局下路径能否回退、入口点可导入 |
+| `test_packaging.py` | 发布可用性：包内契约是否进 wheel、环境变量能否覆盖路径、入口点可导入 |
 
 **改动后必须做到**：全量测试全绿 + `veriself demo` 退出码 0。
 数值类改动要更新 `test_warehouse_contracts.py` 里的黄金值断言——那是唯一能挡住数值漂移的防线。
@@ -165,10 +166,10 @@ uv run veriself demo                                        # 一条命令跑通
 Python 只是执行者。
 
 ```
-metrics/subject.sleep_debt_7d.yml                    # 一个完整契约
-  → metrics/subject.sleep_need_deviation_daily.yml   # 派生指标：metric('...') 引用上游
-  → metrics/subject.focus_score_weekly.yml           # 非日粒度：bucket 桶聚合
-  → semantic_models/observation.yml                  # 逻辑列定义（通道 → 日粒度列）
+veriself/metrics/subject.sleep_debt_7d.yml                    # 一个完整契约
+  → veriself/metrics/subject.sleep_need_deviation_daily.yml   # 派生指标：metric('...') 引用上游
+  → veriself/metrics/subject.focus_score_weekly.yml           # 非日粒度：bucket 桶聚合
+  → veriself/semantic_models/observation.yml                  # 逻辑列定义（通道 → 日粒度列）
   → veriself/config.py                      # 全部约定常量
   → veriself/contract_hash.py               # 解释审计头凭什么可信
   → veriself/warehouse/schema.sql           # 注意 fact_metric_value 的双时间轴
@@ -206,12 +207,11 @@ metrics/subject.sleep_debt_7d.yml                    # 一个完整契约
   部分索引，`CREATE TABLE IF NOT EXISTS` 遇旧表静默跳过）。升级方式 = **重建库**
   （`veriself synth && veriself init`）；需要就地升级时用独立语句（如 `CREATE UNIQUE INDEX IF NOT EXISTS`，
   它不被跳过、且对脏数据报错）。
-- **`metrics/` 与 `semantic_models/` 在仓库根、不在包内** → 发布了要能用的包，靠两处配合：
-  `pyproject.toml` 的 `force-include` 把它们放进 `veriself/_defaults/`，
-  `config._resolve_dir` 再做「环境变量 > 源码目录 > 包内默认值」三分。
-  **改其一必须跑 `pytest tests/test_packaging.py`**，否则 `pip install` 的用户会拿到
-  exit 5（`指标契约目录不存在：…/site-packages/metrics`）；`semantic_model.py` 只引用
-  `config.SEMANTIC_MODELS_DIR`，**不要**再各自拼 `PROJECT_ROOT/...`。
+- **`metrics/` 与 `semantic_models/` 在包内**（`veriself/metrics`、`veriself/semantic_models`），
+  与 `schema.sql` 一样由 `Path(__file__).parent` 就地读取，wheel 会自动带上。
+  `config._resolve_dir` 只做「环境变量 > 包内目录」。
+  **改路径常量必须跑 `pytest tests/test_packaging.py`**；`semantic_model.py` 只引用
+  `config.SEMANTIC_MODELS_DIR`，**不要**再各自拼路径。
   另：安装后 `data/` 落在**当前工作目录**（可写、可预期），不再写 site-packages；可用
   `VERISELF_METRICS_DIR` / `VERISELF_SEMANTIC_MODELS_DIR` / `VERISELF_DATA_DIR` 覆盖。
 - **`fact_observation` 的主键是业务自然键 `(subject_id, observed_at, channel)`**，

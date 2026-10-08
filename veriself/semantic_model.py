@@ -40,8 +40,8 @@ __all__ = [
 ]
 
 #: 语义模型目录（不在 metrics/ 下，避免被 load_contracts 扫描到）。
-#: 取自 `config` 的**唯一裁决点**（源码布局 → `仓库根/semantic_models`；
-#: 安装后 → 包内 `_defaults/semantic_models`）；本模块不再自己拼路径。
+#: 取自 `config` 的**唯一裁决点**（包内 `veriself/semantic_models`，可用环境变量覆盖）；
+#: 本模块不再自己拼路径。
 SEMANTIC_MODELS_DIR: Path = config.SEMANTIC_MODELS_DIR
 
 #: 通道列的日聚合方式枚举（与契约 §2 的 agg 是两回事：这是"当日内多条观测→一个日值"）

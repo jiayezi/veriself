@@ -40,8 +40,7 @@ from veriself.warehouse import (
     write_audit,
 )
 
-PROJECT_ROOT = config.PROJECT_ROOT
-METRICS_DIR = PROJECT_ROOT / "metrics"
+METRICS_DIR = config.METRICS_DIR
 HISTORY_DIR = METRICS_DIR / "history"
 WAREHOUSE_DIR = config.SCHEMA_SQL_PATH.parent
 
