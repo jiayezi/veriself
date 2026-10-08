@@ -130,9 +130,10 @@ def _validate(model: SemanticModel, source_file: str) -> None:
                 f"语义模型 {name} 的列 '{column.name}' 同时声明了 channel/agg 与 expr"
             )
         if has_channel:
-            if not _IDENT_RE.fullmatch(column.channel):
+            channel = column.channel
+            if channel is None or not _IDENT_RE.fullmatch(channel):
                 raise config.ContractError(
-                    f"语义模型 {name} 的列 '{column.name}' 的 channel '{column.channel}' 不是合法标识符"
+                    f"语义模型 {name} 的列 '{column.name}' 的 channel '{channel}' 不是合法标识符"
                 )
             if column.agg not in AGG_FUNCS:
                 raise config.ContractError(

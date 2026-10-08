@@ -21,7 +21,7 @@ import difflib
 import importlib
 import inspect
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -306,8 +306,12 @@ def list_metric_summaries(contracts: Mapping[str, Any]) -> list[dict[str, Any]]:
     fn = getattr(module, "list_metrics", None)
     if not callable(fn):
         raise GatewayUnavailable(_SEMANTIC_MODULE, "缺少 list_metrics()")
-    rows = fn(contracts) or []
-    return [as_dict(row) for row in rows]
+    produced = fn(contracts)
+    if not produced:
+        return []
+    if isinstance(produced, (str, bytes)) or not isinstance(produced, Iterable):
+        raise GatewayUnavailable(_SEMANTIC_MODULE, "list_metrics() 必须返回行的可迭代对象")
+    return [as_dict(row) for row in produced]
 
 
 def describe(contracts: Mapping[str, Any], metric_id: str) -> dict[str, Any]:
@@ -566,9 +570,11 @@ def materialize_all(conn: Any, contracts: Mapping[str, Any]) -> dict[str, int] |
 
     # 合并（merge）是唯一正确的物化语义，本层不做覆盖写。
     raw = fn(conn, dict(contracts)) or {}
+    if not isinstance(raw, Mapping):
+        raise GatewayUnavailable("veriself.materializer", "materialize_all() 必须返回映射")
 
     normalized: dict[str, int] = {}
-    for key, value in dict(raw).items():
+    for key, value in raw.items():
         if isinstance(value, Mapping):
             normalized[str(key)] = int(value.get("live", 0) or 0)
         else:

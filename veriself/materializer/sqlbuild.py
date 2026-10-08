@@ -265,14 +265,14 @@ def _compute_ctes(
         raise config.ContractError(f"{metric_id} 缺少 formula_sql")
 
     resolved = _views._models(models)
-    obs = resolved.get("fact_observation")
-    evt = resolved.get("fact_event")
-    sub = resolved.get("dim_subject")
     missing = [
         table for table in ("fact_observation", "fact_event", "dim_subject") if table not in resolved
     ]
     if missing:
         raise config.ContractError(f"语义模型缺少必需来源表: {missing}")
+    obs = resolved["fact_observation"]
+    evt = resolved["fact_event"]
+    sub = resolved["dim_subject"]
     aliases = _views.source_aliases(resolved)
 
     grain = _contracts._grain(contract)

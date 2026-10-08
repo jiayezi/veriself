@@ -23,7 +23,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import pytest
 from typer.testing import CliRunner
@@ -436,7 +436,7 @@ def test_root_help_lists_all_commands() -> None:
 def test_query_command_has_no_native_query_option() -> None:
     from typer.main import get_command
 
-    command = get_command(cli.app)
+    command = cast(Any, get_command(cli.app))
     options = {opt for param in command.commands["query"].params for opt in getattr(param, "opts", [])}
     assert {"--metrics", "--dimensions", "--filters", "--grain", "--order-by", "--limit", "--role"} <= options
     assert not [name for name in options if "sql" in name.lower() or "native" in name.lower()]
@@ -706,7 +706,9 @@ def test_audit_empty_log_is_ok(tmp_path: Path) -> None:
 
 
 def test_auditlog_fetch_one(audit_db: Path) -> None:
-    assert auditlog.fetch_one(1, audit_db)["outcome"] == "ok"
+    found = auditlog.fetch_one(1, audit_db)
+    assert found is not None
+    assert found["outcome"] == "ok"
     assert auditlog.fetch_one(999, audit_db) is None
     with pytest.raises(auditlog.AuditLogUnavailable):
         auditlog.fetch_one("not-an-id", audit_db)  # type: ignore[arg-type]

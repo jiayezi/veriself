@@ -20,6 +20,7 @@ import shutil
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import duckdb
 import numpy as np
@@ -110,7 +111,10 @@ def _welch(first: np.ndarray, second: np.ndarray) -> tuple[float, float]:
     """Welch t 检验，返回 ``(t, p)``。"""
 
     result = stats.ttest_ind(np.asarray(first, dtype=float), np.asarray(second, dtype=float), equal_var=False)
-    return float(result.statistic), float(result.pvalue)
+    # TtestResult 由 _make_tuple_bunch 动态生成，存根看不到 statistic/pvalue。
+    # 运行时它是 tuple，顺序固定为 (statistic, pvalue, df)。
+    statistic, pvalue = cast(tuple[float, float], result[:2])
+    return statistic, pvalue
 
 
 def _cohen_d(first: np.ndarray, second: np.ndarray) -> float:
@@ -582,7 +586,8 @@ def test_metric_requirements_are_all_non_empty(synth: SynthRun) -> None:
                 assert rows_by_channel.get(key, 0) > 0, f"{metric_id}: 通道 {key} 无数据"
                 assert filled_by_channel.get(key, 0) == rows_by_channel[key], f"{metric_id}: 通道 {key} 有 NULL"
             elif table == "dim_subject":
-                assert subject[key].notna().all(), f"{metric_id}: dim_subject.{key} 有 NULL"
+                present = np.asarray(subject[key].notna(), dtype=bool)
+                assert present.all(), f"{metric_id}: dim_subject.{key} 有 NULL"
             elif key == "amount_transaction":
                 assert transactions.shape[0] > 0, f"{metric_id}: 没有 transaction 事件"
                 assert transactions["amount"].notna().all(), f"{metric_id}: transaction.amount 有 NULL"

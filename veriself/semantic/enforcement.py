@@ -355,7 +355,7 @@ def check_grain(req: QueryRequest, metrics: Sequence[MetricContract]) -> str:
 
 
 # ---------------------------------------------------------------- 4. ast_join_path
-def _sqlglot_func_name(node: exp.Expression) -> str:
+def _sqlglot_func_name(node: exp.Func) -> str:
     if isinstance(node, exp.Anonymous):
         return str(node.name).upper()
     try:
@@ -381,13 +381,13 @@ def _from_clause(tree: exp.Select) -> exp.From | None:
 
 
 def check_ast_join_path(
-    sql: str | exp.Expression,
+    sql: str | exp.Expr,
     *,
     allowed_tables: Iterable[str] | None = None,
     contracts: Mapping[str, MetricContract] | None = None,
     metric_ids: Iterable[str] | None = None,
     dialect: str = "duckdb",
-) -> exp.Expression:
+) -> exp.Expr:
     """校验 4：用 sqlglot 真解析 SQL，断言结构与表/连接路径合法。
 
     拒绝一律抛 `EnforcementError("ast_join_path", "ast_violation: ...")`。
@@ -402,12 +402,12 @@ def check_ast_join_path(
         else lineage_mod.allowed_tables_for(contracts, metric_ids)
     )
 
-    if isinstance(sql, exp.Expression):
+    if isinstance(sql, exp.Expr):
         statements = [sql]
     else:
         try:
             statements = [s for s in sqlglot.parse(str(sql), dialect=dialect) if s is not None]
-        except sqlglot.errors.ParseError as exc:
+        except sqlglot.ParseError as exc:
             raise bad(f"SQL 无法被 sqlglot 解析：{exc}") from exc
     if len(statements) != 1:
         raise bad(f"只允许单条 SELECT 语句，实际解析出 {len(statements)} 条（禁止分号拼接多语句）")

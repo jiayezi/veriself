@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
@@ -335,7 +336,7 @@ def history() -> dict[str, dict]:
 
 
 @pytest.fixture()
-def conn() -> duckdb.DuckDBPyConnection:
+def conn() -> Iterator[duckdb.DuckDBPyConnection]:
     connection = fresh_conn()
     yield connection
     connection.close()
@@ -708,7 +709,9 @@ def test_ensure_schema_has_no_migration_and_requires_rebuild() -> None:
             if key == "PRI"
         }
         assert keys == {"observation_id"}, "不应存在迁移：老库主键保持原样"
-        assert legacy.execute("SELECT count(*) FROM fact_observation").fetchone()[0] == 1
+        legacy_count = legacy.execute("SELECT count(*) FROM fact_observation").fetchone()
+        assert legacy_count is not None
+        assert legacy_count[0] == 1
 
         # ② 但自然键唯一索引已生效 → 重复观测仍被拒绝
         with pytest.raises(duckdb.Error):
@@ -735,7 +738,9 @@ def test_ensure_schema_fails_loudly_when_legacy_data_violates_natural_key() -> N
         # 构造一条重复观测（旧约束允许）
         _insert_observation(dirty)
         _insert_observation(dirty, obs_id=2, value=99.0)
-        assert dirty.execute("SELECT count(*) FROM fact_observation").fetchone()[0] == 2
+        dirty_count = dirty.execute("SELECT count(*) FROM fact_observation").fetchone()
+        assert dirty_count is not None
+        assert dirty_count[0] == 2
 
         with pytest.raises(duckdb.Error):
             ensure_schema(dirty)

@@ -316,7 +316,7 @@ def _render_rejection(plan: Mapping[str, Any], reason: str) -> None:
     console.print(Text("提示：这次拒绝也写进了审计（veriself audit 可查）。", style="dim"))
 
 
-def _enforcement_bypass(reason: str) -> None:
+def _enforcement_bypass(reason: str) -> NoReturn:
     """契约没有拦下非法请求时的致命告警。"""
     render.out().print(render.rejection_panel(
         reason,

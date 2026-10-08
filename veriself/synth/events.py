@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -24,9 +25,17 @@ __all__ = [
     "build_windows",
 ]
 
+def _fixed_timestamp(value: str) -> pd.Timestamp:
+    """固定日期常量。``Timestamp`` 的构造结果在类型上含 NaT，这里把它排除掉。"""
+    parsed = pd.Timestamp(value)
+    if pd.isna(parsed):
+        raise ValueError(f"无效时间戳：{value}")
+    return cast(pd.Timestamp, parsed)
+
+
 #: 减重计划窗口（固定常量，便于测试断言 SCD2 第 2 版的生效日）
-PLAN_START: pd.Timestamp = pd.Timestamp("2025-03-03")
-PLAN_END: pd.Timestamp = pd.Timestamp("2025-09-28")
+PLAN_START: pd.Timestamp = _fixed_timestamp("2025-03-03")
+PLAN_END: pd.Timestamp = _fixed_timestamp("2025-09-28")
 
 TRANSACTION_CATEGORIES: tuple[str, ...] = (
     "groceries",

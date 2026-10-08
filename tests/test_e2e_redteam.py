@@ -444,6 +444,8 @@ def test_synth_is_deterministic(e2e):
             ).fetchone()
         finally:
             check.close()
+        assert row is not None
+        assert event_row is not None
         digests.append((tuple(row), tuple(event_row)))
 
     for d in dirs:

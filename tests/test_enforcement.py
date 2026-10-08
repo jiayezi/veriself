@@ -395,7 +395,9 @@ def test_load_contracts_accepts_declarative_bucket(contracts_dir):
     _write(contracts_dir, "a.yml", grain="week",
            formula_sql="o.sleep_hours", bucket={"agg": "sum"})
     contracts = load_contracts(contracts_dir)
-    assert contracts["subject.a"].bucket.agg == "sum"
+    bucket = contracts["subject.a"].bucket
+    assert bucket is not None
+    assert bucket.agg == "sum"
 
 
 def test_load_contracts_rejects_invalid_bucket_agg(contracts_dir):
@@ -1096,7 +1098,7 @@ def _install_fake_loader(monkeypatch, store):
             ],
         )
 
-    module.write_audit = write_audit
+    module.write_audit = write_audit  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "veriself.warehouse.loader", module)
 
 

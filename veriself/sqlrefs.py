@@ -35,7 +35,7 @@ __all__ = [
 _METRIC_FN = "metric"
 
 
-def _parse(formula: str) -> exp.Expression:
+def _parse(formula: str) -> exp.Expr:
     """解析契约公式（DuckDB 方言）。空文本由调用方保证不出现。"""
     return sqlglot.parse_one(formula, read="duckdb")
 
@@ -101,7 +101,7 @@ def rewrite(
     tree = _parse(formula)
     aliases = frozenset(table_aliases.values())
 
-    def transform(node: exp.Expression) -> exp.Expression:
+    def transform(node: exp.Expr) -> exp.Expr:
         if isinstance(node, exp.Column) and node.table:
             if node.table in table_aliases:
                 node.set("table", exp.to_identifier(table_aliases[node.table]))
@@ -147,7 +147,7 @@ def strip_metric_calls(formula: str) -> str:
         return formula
     tree = _parse(formula)
 
-    def transformer(node: exp.Expression) -> exp.Expression:
+    def transformer(node: exp.Expr) -> exp.Expr:
         if isinstance(node, exp.Anonymous) and node.this == _METRIC_FN and _metric_call_arg(node) is not None:
             return exp.column("__metric_ref__")
         return node
@@ -162,7 +162,7 @@ def strip_string_literals(formula: str) -> str:
         return formula
     tree = _parse(formula)
 
-    def transformer(node: exp.Expression) -> exp.Expression:
+    def transformer(node: exp.Expr) -> exp.Expr:
         if isinstance(node, exp.Literal) and node.is_string:
             return exp.Literal.string("")
         return node

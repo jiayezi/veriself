@@ -58,7 +58,7 @@ def _now() -> _dt.datetime:
 
 
 # ---------------------------------------------------------------- 参数化渲染
-def _render_with_params(tree: exp.Expression, values: Sequence[object]) -> tuple[str, list[object]]:
+def _render_with_params(tree: exp.Expr, values: Sequence[object]) -> tuple[str, list[object]]:
     """渲染 SQL 并按占位符在 SQL 中的**实际顺序**输出参数表。
 
     做法：把每个 `?` 占位符原地换成唯一标记字面量（标记里带该占位符在 `values` 中的下标）
@@ -68,7 +68,7 @@ def _render_with_params(tree: exp.Expression, values: Sequence[object]) -> tuple
     nodes = list(tree.find_all(exp.Placeholder))
     if len(nodes) != len(values):
         raise config.QueryError(f"参数化失败：SQL 里 {len(nodes)} 个占位符，但收集到 {len(values)} 个参数")
-    markers: dict[int, exp.Expression] = {}
+    markers: dict[int, exp.Expr] = {}
     for node in nodes:
         index = node.meta.get("swh_value_index")
         if index is None:
@@ -142,14 +142,14 @@ class _Builder:
         return bool(self.rls and self.rls.cross_subject)
 
     # -------------------------------------------------- 各部分
-    def _bucket_expr(self) -> exp.Expression:
+    def _bucket_expr(self) -> exp.Expr:
         date_col = self.col("date", "d")
         if self.grain == "day":
             return date_col
         # DuckDB 的 date_trunc 返回 TIMESTAMP，这里统一裁成 DATE，输出与 date.day 一致
         return exp.cast(exp.DateTrunc(unit=exp.Literal.string(self.grain), this=date_col), "DATE")
 
-    def _metric_expr(self, contract: MetricContract) -> exp.Expression:
+    def _metric_expr(self, contract: MetricContract) -> exp.Expr:
         """单个指标的输出表达式（`CASE WHEN metric_id = ?` + 该指标的 agg）。"""
         case = exp.Case().when(
             self.col("metric_id", "f").eq(self.ph(contract.metric_id)),
@@ -171,8 +171,8 @@ class _Builder:
             return exp.ArgMax(this=case, expression=self.col("date_key", "f"))
         raise config.ContractError(f"指标 '{contract.metric_id}' 的 agg='{contract.agg}' 不受支持")
 
-    def _select_list(self) -> list[exp.Expression]:
-        items: list[exp.Expression] = [
+    def _select_list(self) -> list[exp.Expr]:
+        items: list[exp.Expr] = [
             exp.alias_(self._bucket_expr(), self.bucket, quoted=True)
         ]
         for dim in self.plan.dimensions:
@@ -183,7 +183,7 @@ class _Builder:
             items.append(exp.alias_(self._metric_expr(contract), contract.metric_id, quoted=True))
         return items
 
-    def _metric_predicate(self) -> exp.Expression:
+    def _metric_predicate(self) -> exp.Expr:
         """`(metric_id = ? AND metric_version = ?) OR ...` —— 当前有效版本。"""
         parts = [
             exp.and_(
@@ -194,8 +194,8 @@ class _Builder:
         ]
         return parts[0] if len(parts) == 1 else exp.or_(*parts)
 
-    def _date_filters(self) -> list[exp.Expression]:
-        conditions: list[exp.Expression] = []
+    def _date_filters(self) -> list[exp.Expr]:
+        conditions: list[exp.Expr] = []
         for item in self.plan.filters:
             if item.table != "dim_date":
                 continue
@@ -218,20 +218,20 @@ class _Builder:
                 conditions.append(self._equality(ref, item.values))
         return conditions
 
-    def _other_filters(self) -> list[exp.Expression]:
-        conditions: list[exp.Expression] = []
+    def _other_filters(self) -> list[exp.Expr]:
+        conditions: list[exp.Expr] = []
         for item in self.plan.filters:
             if item.table == "dim_date":
                 continue
             conditions.append(self._equality(self.col(item.column, self._alias_for(item.table)), item.values))
         return conditions
 
-    def _equality(self, ref: exp.Column, values: Sequence[Any]) -> exp.Expression:
+    def _equality(self, ref: exp.Column, values: Sequence[Any]) -> exp.Expr:
         if len(values) == 1:
             return ref.eq(self.ph(values[0]))
         return exp.In(this=ref, expressions=[self.ph(value) for value in values])
 
-    def _having(self) -> exp.Expression:
+    def _having(self) -> exp.Expr:
         size = int(self.rls.min_group_size) if self.rls and self.rls.min_group_size else config.MIN_GROUP_SIZE
         subjects = exp.GTE(
             this=exp.Count(this=exp.Distinct(expressions=[self.col("subject_id", "f")])),
@@ -278,7 +278,7 @@ class _Builder:
                 join_type="inner",
             )
 
-        conditions: list[exp.Expression] = [
+        conditions: list[exp.Expr] = [
             self.col("valid_to", "f").is_(exp.Null()),
             self._metric_predicate(),
         ]
@@ -302,7 +302,7 @@ class _Builder:
 def compile_query(
     req: QueryRequest,
     contracts: dict[str, MetricContract],
-    role: config.Role = config.Role.OWNER,
+    role: config.Role | str = config.Role.OWNER,
 ) -> CompiledQuery:
     """执行五条强制校验并生成 SQL；被拒绝时抛 `config.EnforcementError(rule, detail)`。
 

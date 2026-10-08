@@ -49,14 +49,14 @@ def ensure_views(conn: Any, models: Mapping[str, Any] | None = None) -> None:
     视图列清单由语义模型驱动；缺少任一必需来源表 → `ContractError`（fail-closed）。
     """
     resolved = _models(models)
-    obs = resolved.get("fact_observation")
-    evt = resolved.get("fact_event")
-    sub = resolved.get("dim_subject")
     missing = [
         table for table in ("fact_observation", "fact_event", "dim_subject") if table not in resolved
     ]
     if missing:
         raise config.ContractError(f"语义模型缺少必需来源表: {missing}")
+    obs = resolved["fact_observation"]
+    evt = resolved["fact_event"]
+    sub = resolved["dim_subject"]
 
     obs_cols = ",\n        ".join(_channel_agg_sql(c) for c in obs.columns)
     evt_cols = ",\n        ".join(f"{c.expr} AS {c.name}" for c in evt.columns)

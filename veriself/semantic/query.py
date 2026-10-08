@@ -177,7 +177,7 @@ class QueryRequest(BaseModel):
 
     # ------------------------------------------------------------ 构造
     @classmethod
-    def from_json(cls, raw: str | dict) -> QueryRequest:
+    def from_json(cls, raw: object) -> QueryRequest:
         """解析 JSON/字典并做注入面检查；任何非法输入抛 `QueryError`。"""
         if isinstance(raw, (bytes, bytearray)):
             raw = raw.decode("utf-8")
