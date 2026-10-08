@@ -2,7 +2,7 @@
 metric_id: subject.spending_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 当日支出
 synonyms: [今天花了多少, 日支出, daily spending]
 definition: 当日 transaction 类型事件的金额之和；当日没有交易事件但存在其他事件时记为 0，完全没有事件的日期不产出数据行。

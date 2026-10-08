@@ -3,7 +3,7 @@
 metric_id: subject.focus_score_weekly
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 周专注度
 synonyms: [这周专注度, 周专注得分, weekly focus]
 definition: 自然周（ISO 周，周一起算）内各日专注度的均值；只在该周最后一个有数据的日期落一行，date_key 为该日期。

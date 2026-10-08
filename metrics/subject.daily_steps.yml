@@ -2,7 +2,7 @@
 metric_id: subject.daily_steps
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 日步数
 synonyms: [步数, 走了多少步, daily steps]
 definition: 当日 steps 通道观测之和；无观测的日期不产出数据行。

@@ -98,7 +98,7 @@ class FakeContract:
         self.version = kwargs.get("version", 1)
         self.contract_hash = kwargs.get("contract_hash", "sha256:0123456789abcdef")
         self.rls_policy = kwargs.get("rls_policy", "owner_only")
-        self.owner = kwargs.get("owner", "qingping")
+        self.owner = kwargs.get("owner", "jiayezi")
         self.definition = kwargs.get("definition", f"{metric_id} 的口径说明（测试替身）")
         self.formula_sql = kwargs.get("formula_sql", "mean(coalesce(o.sleep_hours, 0))")
         self.lineage = kwargs.get(

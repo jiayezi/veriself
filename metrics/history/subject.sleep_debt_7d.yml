@@ -3,7 +3,7 @@
 metric_id: subject.sleep_debt_7d
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 近5日睡眠债
 synonyms: [睡眠债, 这周欠了多少觉, sleep debt]
 definition: 近 5 日（含当日）睡眠缺口之和；当日缺口 = max(睡眠需求 − 实际睡眠, 0)，睡够的日期不计负值。这是 version 1 的历史口径，已被 7 日窗口的 version 2 取代。

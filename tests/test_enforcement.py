@@ -1195,7 +1195,7 @@ def test_public_api_signatures_are_frozen():
 SAMPLE_YAML = """metric_id: subject.sleep_debt_7d
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 近7日睡眠债
 synonyms: [睡眠债, sleep debt]
 definition: 过去7日(含当日)每日睡眠缺口之和
@@ -1220,7 +1220,7 @@ deprecation:
 UPSTREAM_YAML = """metric_id: subject.sleep_need_deviation_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 睡眠需求偏差
 unit: hour
 direction: neutral

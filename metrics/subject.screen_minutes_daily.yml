@@ -2,7 +2,7 @@
 metric_id: subject.screen_minutes_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 当日屏幕时间
 synonyms: [屏幕时间, 看手机时长, screen time]
 definition: 当日屏幕使用分钟数（screen_minutes 通道之和）；无观测的日期不产出数据行。

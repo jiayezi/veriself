@@ -2,7 +2,7 @@
 metric_id: subject.exercise_minutes_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 当日运动分钟
 synonyms: [运动时长, 锻炼分钟, exercise minutes]
 definition: 当日中高强度运动分钟数（exercise_minutes 通道之和）；无观测的日期不产出数据行。

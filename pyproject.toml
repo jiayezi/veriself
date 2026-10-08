@@ -9,7 +9,7 @@ description = "A typed metric execution layer for AI agents. The LLM cannot writ
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
-authors = [{ name = "qingping" }]
+authors = [{ name = "jiayezi" }]
 keywords = ["metrics", "semantic-layer", "mcp", "duckdb", "data-warehouse", "ai-agent"]
 classifiers = [
     "Development Status :: 3 - Alpha",

@@ -2,7 +2,7 @@
 metric_id: subject.sleep_need_deviation_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 当日睡眠需求偏差
 synonyms: [睡眠偏差, 睡够了没, sleep need deviation]
 definition: 当日实际睡眠时长减去个体睡眠需求（小时）；正数表示睡够，负数表示欠觉。

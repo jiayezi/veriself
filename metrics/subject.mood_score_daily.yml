@@ -2,7 +2,7 @@
 metric_id: subject.mood_score_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 当日情绪得分
 synonyms: [情绪, 心情得分, mood score]
 definition: 当日情绪得分 0-100（mood_score 通道均值，含季节项）；无观测的日期不产出数据行。

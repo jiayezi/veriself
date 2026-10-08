@@ -2,7 +2,7 @@
 metric_id: subject.sleep_duration_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 当日睡眠时长
 synonyms: [睡眠时长, 睡了多久, sleep duration]
 definition: 当日睡眠时长（小时），取当日 sleep_hours 通道观测之和；无观测的日期不产出数据行。

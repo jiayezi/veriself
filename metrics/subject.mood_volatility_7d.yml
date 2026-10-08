@@ -2,7 +2,7 @@
 metric_id: subject.mood_volatility_7d
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 近7日情绪波动
 synonyms: [情绪波动, 心情起伏, mood volatility]
 definition: 近 7 日（含当日）情绪得分的总体标准差，数值越大情绪越不稳定。

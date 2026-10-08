@@ -2,7 +2,7 @@
 metric_id: subject.recovery_score_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 当日恢复度
 synonyms: [恢复度, 恢复得分, recovery score]
 definition: 当日恢复度 0-100 = 60% 静息心率分（70bpm 为满分基准，越低越高）+ 40% HRV 分（20ms 起线性到 80ms 满分）；两项任一缺失则不产出数据行。

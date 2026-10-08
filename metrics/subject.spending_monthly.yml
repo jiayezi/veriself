@@ -3,7 +3,7 @@
 metric_id: subject.spending_monthly
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 月支出
 synonyms: [这个月花了多少, 月支出, monthly spending]
 definition: 自然月内各日支出之和；只在当月最后一个有数据的日期落一行，date_key 为该日期。

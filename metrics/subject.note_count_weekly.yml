@@ -3,7 +3,7 @@
 metric_id: subject.note_count_weekly
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 周笔记数
 synonyms: [这周记了几条, 周笔记数, weekly notes]
 definition: 自然周（ISO 周，周一起算）内 note 类型事件的条数之和；只在该周最后一个有事件的日期落一行，date_key 为该日期。

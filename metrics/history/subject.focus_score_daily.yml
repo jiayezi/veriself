@@ -3,7 +3,7 @@
 metric_id: subject.focus_score_daily
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 当日专注度
 synonyms: [专注度, 专注得分, focus score]
 definition: 当日专注度 0-100，把设备上报的 focus_score 从 40-90 区间线性拉伸到 0-100 后截断。这是 version 1 的历史归一化口径，已被原始分直取的 version 2 取代。

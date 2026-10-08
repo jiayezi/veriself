@@ -41,7 +41,7 @@
    （先算 RLS 改写计划，再对最终 SQL 做 AST 校验）。
    审计头 `enforced_checks` 记录**实际执行过**的校验（按规范顺序输出），
    **不是**回显 `config.ENFORCED_CHECKS`——别把它改回常量，那会让审计栏变成空头支票。
-3. **`config.py` 与 `contract_hash.py` 不得改**（前者是所有约定的事实来源，后者三方共用）。
+3. **`config.py` 与 `contract_hash.py` 一般不改**（前者是所有约定的事实来源，后者三方共用）。
    ⚠️ **唯一例外是 `config.py` 里的"路径"常量**：`METRICS_DIR` / `SEMANTIC_MODELS_DIR` / `DATA_DIR`
    是**布局感知**的（源码布局 → 仓库根；`pip install` 后 → 包内 `_defaults/` 或当前工作目录），
    为的是让装好的包可用。改它们必须先看 `tests/test_packaging.py`。

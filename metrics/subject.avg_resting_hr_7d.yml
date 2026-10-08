@@ -2,7 +2,7 @@
 metric_id: subject.avg_resting_hr_7d
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 近7日静息心率
 synonyms: [静息心率, 安静心率, resting heart rate]
 definition: 近 7 日（含当日）静息心率均值（bpm）；窗口按有观测的日期滚动，缺测日不占位。

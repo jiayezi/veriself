@@ -4,7 +4,7 @@
 metric_id: subject.discretionary_spending_ratio
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 非必要支出占比
 synonyms: [非必要支出, 冲动消费占比, discretionary ratio]
 definition: 自然月内非必要支出（category 为 dining / entertainment / shopping 的 transaction 金额）占当月总支出的比例，按当月各日比例取均值；只在当月最后一个有数据的日期落一行。

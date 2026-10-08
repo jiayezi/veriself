@@ -2,7 +2,7 @@
 metric_id: subject.sleep_regularity_7d
 version: 1
 status: active
-owner: qingping
+owner: jiayezi
 display_name: 近7日作息规律度
 synonyms: [作息规律, 睡眠规律性, sleep regularity]
 definition: 近 7 日（含当日）睡眠时长的总体标准差映射到 0-100 的规律度；score = clamp(100 − 40 × σ, 0, 100)，σ 单位为小时。系数 40 按合成数据的 σ 分布标定（σ 中位数约 0.8h → 约 68 分，p99 约 1.6h → 约 37 分），σ 越小作息越规律、分越高。
