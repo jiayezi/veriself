@@ -121,9 +121,8 @@ Pylance 没有 CLI，但它的引擎 Pyright 有。仓库根的 `pyrightconfig.j
 - Pylance 默认 `python.analysis.diagnosticMode = openFilesOnly`，**只报已打开的文件**；
   Pyright CLI 永远扫 `include` 下的全部文件。想让编辑器也全量：改成 `"workspace"`（会明显变慢）。
 - Pylance 自带常用库的 **bundled stubs**（`python.analysis.disableBundledStubs`），Pyright CLI 没有。
-  `pandas` 不带 `py.typed`、也没装 `pandas-stubs`，于是 CLI 会多报
-  `Cannot access attribute "dayofweek" for class "DatetimeIndex"` 这类编辑器不报的错。
-  要抹平：`uv add --dev pandas-stubs`（`scipy` 同理，用 `types-*` / `*-stubs`）。
+  `pandas` / `scipy` 本身不带 `py.typed`。dev 额外依赖里已经放了 `pandas-stubs` 与 `scipy-stubs`，
+  `uv sync --extra dev` 之后两边都能看到 `DatetimeIndex.dayofweek` 这类属性。
 
 ---
 

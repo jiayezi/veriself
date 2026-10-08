@@ -164,7 +164,8 @@ def build_dim_subject(plan_start: pd.Timestamp) -> pd.DataFrame:
             "base_weight_kg": np.array([BASE_WEIGHT_KG, PLAN_WEIGHT_KG], dtype="float64"),
             "timezone": pd.Series([TIMEZONE] * 2, dtype="str"),
             "valid_from": pd.to_datetime([start, pd.Timestamp(plan_start)]),
-            "valid_to": pd.to_datetime([pd.Timestamp(plan_start), pd.NaT]),
+            # Series 重载接受 Timestamp 与 NaT 混排，列类型仍是 datetime64。
+            "valid_to": pd.to_datetime(pd.Series([pd.Timestamp(plan_start), pd.NaT])),
             "is_current": np.array([False, True], dtype=bool),
             "version": np.array([1, 2], dtype="int32"),
             "recorded_at": pd.to_datetime([start, recorded_v2]),

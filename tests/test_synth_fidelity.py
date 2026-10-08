@@ -107,10 +107,34 @@ CONTRACT_COLUMNS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _welch(first: np.ndarray, second: np.ndarray) -> tuple[float, float]:
+def _as_float_vector(values: pd.Series | np.ndarray) -> np.ndarray:
+    """把 ndarray 或按掩码切出的 Series 收成 float 向量。"""
+
+    if isinstance(values, pd.Series):
+        return values.to_numpy(dtype=float)
+    return np.asarray(values, dtype=float)
+
+
+def _cell(frame: pd.DataFrame, label: str, column: str) -> float:
+    """读出一个数值单元格。
+
+    ``DataFrame.loc`` 的标量在存根里是 ``Scalar``，``int`` / ``float`` 接不住。
+    这里改走 ndarray。``get_indexer`` 对缺失标签返回 -1。
+    """
+
+    located = frame.index.get_indexer(pd.Index([label]))
+    position = int(located[0])
+    if position < 0:
+        raise AssertionError(f"{label!r} 不在索引中")
+    return float(frame[column].to_numpy()[position])
+
+
+def _welch(first: pd.Series | np.ndarray, second: pd.Series | np.ndarray) -> tuple[float, float]:
     """Welch t 检验，返回 ``(t, p)``。"""
 
-    result = stats.ttest_ind(np.asarray(first, dtype=float), np.asarray(second, dtype=float), equal_var=False)
+    result = stats.ttest_ind(
+        _as_float_vector(first), _as_float_vector(second), equal_var=False
+    )
     # TtestResult 由 _make_tuple_bunch 动态生成，存根看不到 statistic/pvalue。
     # 运行时它是 tuple，顺序固定为 (statistic, pvalue, df)。
     statistic, pvalue = cast(tuple[float, float], result[:2])
@@ -233,12 +257,10 @@ class SynthRun:
         events = self.query("SELECT date_key, event_type, amount FROM fact_event")
         transactions = events.loc[events["event_type"] == "transaction"]
         notes = events.loc[events["event_type"] == "note"]
-        wide["spending_daily"] = (
-            wide.index.map(transactions.groupby("date_key")["amount"].sum()).astype(float).fillna(0.0)
-        )
-        wide["note_count"] = (
-            wide.index.map(notes.groupby("date_key").size()).astype(float).fillna(0.0)
-        )
+        spending = transactions.groupby("date_key")["amount"].sum()
+        notes_per_day = notes.groupby("date_key").size()
+        wide["spending_daily"] = spending.reindex(wide.index).fillna(0.0).astype(float)
+        wide["note_count"] = notes_per_day.reindex(wide.index).fillna(0.0).astype(float)
         return wide
 
     def latent(self) -> pd.DataFrame:
@@ -615,13 +637,13 @@ def test_observation_channels_and_timestamps(synth: SynthRun) -> None:
     coverage = coverage.set_index("channel")
     for channel in DAILY_CHANNEL_NAMES:
         assert channel in coverage.index, f"缺少日粒度通道 {channel}"
-        assert int(coverage.loc[channel, "rows"]) == days, channel
-        assert int(coverage.loc[channel, "days"]) == days, channel
-        assert int(coverage.loc[channel, "null_ts"]) == 0
-        assert float(coverage.loc[channel, "min_value"]) < float(coverage.loc[channel, "max_value"])
+        assert int(_cell(coverage, channel, "rows")) == days, channel
+        assert int(_cell(coverage, channel, "days")) == days, channel
+        assert int(_cell(coverage, channel, "null_ts")) == 0
+        assert _cell(coverage, channel, "min_value") < _cell(coverage, channel, "max_value")
     for channel in PROMOTED_INTRADAY_CHANNELS:
         assert channel in coverage.index, f"缺少日内通道 {channel}"
-        assert int(coverage.loc[channel, "rows"]) == days * SLOTS_PER_DAY, channel
+        assert int(_cell(coverage, channel, "rows")) == days * SLOTS_PER_DAY, channel
 
     mismatch = synth.query(
         "SELECT count(*) AS n FROM fact_observation "

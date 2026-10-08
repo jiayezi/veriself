@@ -70,7 +70,7 @@ def _fact_observation(daily: pd.DataFrame, intraday: pd.DataFrame) -> pd.DataFra
     promoted = intraday.loc[intraday["channel"].isin(observations.PROMOTED_INTRADAY_CHANNELS)]
     frame = pd.concat([daily, promoted], ignore_index=True)
     frame = frame.sort_values(["observed_at", "channel"], kind="stable").reset_index(drop=True)
-    frame.insert(0, "observation_id", pd.array(range(1, frame.shape[0] + 1), dtype="int64"))
+    frame.insert(0, "observation_id", range(1, frame.shape[0] + 1))
     return frame.loc[
         :,
         [

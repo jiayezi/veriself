@@ -43,7 +43,13 @@ Issues = "https://github.com/jiayezi/veriself/issues"
 Documentation = "https://github.com/jiayezi/veriself/tree/main/docs"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "pandas-stubs>=3.0.5.260914",
+    "scipy-stubs>=1.17.1.5",
+]
 
 [project.scripts]
 veriself = "veriself.interfaces.cli:app"
