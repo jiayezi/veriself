@@ -26,7 +26,7 @@ dependencies = [
     "pydantic>=2.6",
     "sqlglot>=25.0",
     "pyyaml>=6.0",
-    "typer>=0.12",
+    "typer>=0.27",
     "rich>=13.0",
     # mcp 2.x 才有 MCPServer（1.x 的 FastMCP 在 2.0 已更名）；
     # interfaces 会对 mcp<2 抛出明确错误。
