@@ -4,6 +4,9 @@
 `allowed_dimensions` / `allowed_filters`（契约 §2），注册表只负责把通过白名单的名字
 解析成可安全构造的 `(表, 列)`，绝不接受客户端给的原始 SQL 片段。
 
+命名空间、列别名和表列白名单从 `veriself/domains/person.yml` 派生，这里不再手写第二份。
+`date.between` / `date.last_n_days` 仍是引擎的过滤器形态，名字由时间维命名空间拼出来。
+
 解析不到的名字一律由调用方（`enforcement`）转成契约 §5 规定的拒绝前缀
 （`dimension_not_allowed:` / `filter_not_allowed:`），即 fail-closed。
 """
@@ -16,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from veriself import config
+from veriself.domain import default_domain
 from veriself.semantic.contract import AS_OF_DEFINITION, MetricContract
 
 __all__ = [
@@ -29,67 +33,32 @@ __all__ = [
     "resolve_filter",
 ]
 
-_TABLE_FOR_NAMESPACE: dict[str, str] = {
-    "date": "dim_date",
-    "dim_date": "dim_date",
-    "context": "fact_subject_day",
-    "subject": "dim_subject",
-    "dim_subject": "dim_subject",
-    #: 事实表本身只暴露 metric/date 两个语义命名空间给过滤器
-    "metric": "fact_metric_value",
-    "fact_metric_value": "fact_metric_value",
-}
+_DOMAIN = default_domain()
 
-#: 语义名 → 物理列（不带别名时直接同名）
-COLUMN_ALIASES: dict[str, str] = {
-    "date.day": "date",
-    "date.date": "date",
-    "date.weekday": "weekday_name",
-    # `date.weekday` 是**星期名**（"Monday"…），按它排序得到的是字母序而不是星期序。
-    # 要做"周内趋势"必须用数字型 `date.day_of_week`（1=周一 … 7=周日）。
-    "date.day_of_week": "day_of_week",
-    "date.week": "week",
-    "date.month": "month",
-    "date.quarter": "quarter",
-    "date.year": "year",
-    "date.is_weekend": "is_weekend",
-    "date.is_holiday": "is_holiday",
-    "context.is_travel": "is_travel",
-    "context.is_illness": "is_illness",
-    "context.location_type": "location_type",
-    "subject.sleep_need_h": "sleep_need_h",
-    "dim_subject.sleep_need_h": "sleep_need_h",
-    "subject.base_weight_kg": "base_weight_kg",
-    "dim_subject.base_weight_kg": "base_weight_kg",
-}
+# 事实表本身暴露 `metric` 与物理表名两个命名空间。列是引擎指标库的列，不进领域文件。
+_TABLE_FOR_NAMESPACE: dict[str, str] = _DOMAIN.namespace_tables()
+_TABLE_FOR_NAMESPACE["metric"] = _DOMAIN.metric_table
+_TABLE_FOR_NAMESPACE[_DOMAIN.metric_table] = _DOMAIN.metric_table
+
+#: 语义名 → 物理列（由领域文件派生，不带别名时直接同名）
+COLUMN_ALIASES: dict[str, str] = _DOMAIN.column_aliases()
 
 #: 兼容别名：接受的命名空间（对外文档与 `describe_metric` 输出用）
 NAMESPACE_TABLES: Mapping[str, str] = _TABLE_FOR_NAMESPACE
 
 _IDENT_RE = re.compile(r"^[A-Za-z_]\w*$")
 
-#: 各表允许被引用的列（契约 §1 冻结 DDL）。
-#: 严格白名单 = fail-closed：YAML 里的维度/过滤器写错列名会在编译期被拒，
-#: 而不是等到执行时抛 DuckDB binder 错误。
-TABLE_COLUMNS: Mapping[str, frozenset[str]] = {
-    "dim_date": frozenset(
-        {"date_key", "date", "year", "quarter", "month", "week", "day_of_week",
-         "weekday_name", "is_weekend", "is_holiday"}
-    ),
-    "fact_subject_day": frozenset(
-        {"subject_id", "date_key", "is_travel", "is_illness", "location_type"}
-    ),
-    "dim_subject": frozenset(
-        {"subject_sk", "subject_id", "name", "birth_date", "sleep_need_h", "base_weight_kg",
-         "timezone", "valid_from", "valid_to", "is_current", "version", "recorded_at"}
-    ),
-    "fact_metric_value": frozenset({"metric_id", "subject_id", "date_key", "value"}),
-}
+#: 各表允许被引用的列。严格白名单 = fail-closed：写错列名会在编译期被拒。
+TABLE_COLUMNS: dict[str, frozenset[str]] = dict(_DOMAIN.table_columns())
+TABLE_COLUMNS[_DOMAIN.metric_table] = frozenset(
+    {"metric_id", "value", _DOMAIN.entity_key, _DOMAIN.time_key}
+)
 
-#: 过滤器的特殊形态（其余 `命名空间.属性` 一律按等值过滤处理）
+#: 过滤器的特殊形态（其余 `命名空间.属性` 一律按等值过滤处理）。
+#: 名字挂在时间维命名空间上，person 领域因此仍是 `date.between` / `date.last_n_days`。
 FILTER_KINDS: Mapping[str, str] = {
-    "date.between": "between",
-    "date.last_n_days": "last_n_days",
+    f"{_DOMAIN.time_dimension.namespace}.between": "between",
+    f"{_DOMAIN.time_dimension.namespace}.last_n_days": "last_n_days",
 }
 
 
@@ -112,8 +81,8 @@ class ColumnRef:
 
     @property
     def requires_join(self) -> bool:
-        """是否需要额外 JOIN（`dim_date` 由编译器无条件内连接）。"""
-        return self.table != "dim_date"
+        """是否需要额外 JOIN（时间维由编译器无条件内连接）。"""
+        return self.table != _DOMAIN.time_dimension.table
 
 
 def resolve_column(name: str) -> ColumnRef:
@@ -139,7 +108,13 @@ def resolve_filter(name: str) -> tuple[str, ColumnRef]:
     """解析过滤器：返回 `(kind, ColumnRef)`，`kind ∈ {between, last_n_days, equals}`。"""
     kind = FILTER_KINDS.get(name)
     if kind is not None:
-        return kind, resolve_column("date.date")
+        relation = _DOMAIN.time_dimension
+        calendar = relation.calendar_column or relation.keys[0]
+        return kind, ColumnRef(
+            name=f"{relation.namespace}.{calendar}",
+            table=relation.table,
+            column=calendar,
+        )
     return "equals", resolve_column(name)
 
 

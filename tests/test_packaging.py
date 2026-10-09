@@ -1,6 +1,6 @@
 """发布相关的回归测试：`pip install` 之后包能不能用。
 
-契约目录在包内（`veriself/metrics`、`veriself/semantic_models`），与 `schema.sql` 同一规则进 wheel。
+契约目录在包内（`veriself/metrics`、`veriself/semantic_models`、`veriself/domains`），与 `schema.sql` 同一规则进 wheel。
 本文件守两件事：
 
 1. `config` 在未设置环境变量时指向包内目录，设置后让环境变量优先；
@@ -45,8 +45,10 @@ def test_contract_dirs_live_inside_package() -> None:
     """
     assert config.METRICS_DIR == PKG_DIR / "metrics"
     assert config.SEMANTIC_MODELS_DIR == PKG_DIR / "semantic_models"
+    assert config.DOMAINS_DIR == PKG_DIR / "domains"
     assert len(list(config.METRICS_DIR.glob("*.yml"))) == 18, "指标契约应为 18 个"
     assert len(list(config.SEMANTIC_MODELS_DIR.glob("*.yml"))) == 3, "语义模型应为 3 个"
+    assert (config.DOMAINS_DIR / "person.yml").is_file(), "查询期领域文件应在包内"
     assert list((config.METRICS_DIR / "history").glob("*.yml")), "历史口径应仍在 metrics/history"
 
 
@@ -84,6 +86,7 @@ def test_wheel_ships_contract_dirs() -> None:
         assert "veriself/metrics/subject.sleep_debt_7d.yml" in names
         assert "veriself/metrics/history/subject.sleep_debt_7d.yml" in names
         assert "veriself/semantic_models/observation.yml" in names
+        assert "veriself/domains/person.yml" in names
         assert not any(name.startswith("veriself/_defaults/") for name in names)
     finally:
         shutil.rmtree(_WHEEL_OUT, ignore_errors=True)

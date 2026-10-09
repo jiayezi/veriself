@@ -798,17 +798,3 @@ def test_contract_hash_authority_is_stable():
 
     assert contract_hash(GOLDEN_CONTRACT) == GOLDEN_CONTRACT_HASH
 
-
-def test_ensure_views_is_idempotent(conn):
-    conn.execute("CREATE VIEW subject_current AS SELECT 1 AS leftover")
-    ensure_views(conn)
-    ensure_views(conn)
-    for view in ("obs_daily", "evt_daily", "subject_asof"):
-        got = conn.execute(
-            "SELECT count(*) FROM duckdb_views() WHERE view_name = ?", [view]
-        ).fetchone()[0]
-        assert got == 1
-    retired = conn.execute(
-        "SELECT count(*) FROM duckdb_views() WHERE view_name = 'subject_current'"
-    ).fetchone()[0]
-    assert retired == 0

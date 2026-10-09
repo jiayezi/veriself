@@ -1,0 +1,95 @@
+# 查询期领域描述符（person）。
+# 只描述「谁能 JOIN 谁、语义名对应哪一列」。
+# 通道、事件逻辑列和物化期的业务日连接仍在 semantic_models/*.yml，不在这里重复。
+# 查询 dim_subject 用 is_current；物化按 [valid_from, valid_to) 取属性。两套语义不要写进同一份文件。
+domain_id: person
+entity_key: subject_id
+time_key: date_key
+metric_table: fact_metric_value
+metric_alias: f
+
+time_dimension:
+  namespace: date
+  table: dim_date
+  alias: d
+  also_namespaces: [dim_date]
+  join: always
+  keys: [date_key]
+  # date_trunc / date.between 读的物理列。语义名 weekday 仍映射到 weekday_name（字母序）。
+  calendar_column: date
+  columns:
+    - name: day
+      column: date
+    - name: date
+      column: date
+    - name: weekday
+      column: weekday_name
+    - name: day_of_week
+      column: day_of_week
+    - name: week
+      column: week
+    - name: month
+      column: month
+    - name: quarter
+      column: quarter
+    - name: year
+      column: year
+    - name: is_weekend
+      column: is_weekend
+    - name: is_holiday
+      column: is_holiday
+
+dimensions:
+  - namespace: context
+    table: fact_subject_day
+    alias: sd
+    join: when_referenced
+    keys: [subject_id, date_key]
+    columns:
+      - name: is_travel
+        column: is_travel
+      - name: is_illness
+        column: is_illness
+      - name: location_type
+        column: location_type
+  - namespace: subject
+    table: dim_subject
+    alias: s
+    also_namespaces: [dim_subject]
+    join: when_referenced
+    keys: [subject_id]
+    predicate: is_current
+    columns:
+      - name: sleep_need_h
+        column: sleep_need_h
+      - name: base_weight_kg
+        column: base_weight_kg
+      - name: name
+        column: name
+      - name: birth_date
+        column: birth_date
+      - name: timezone
+        column: timezone
+      - name: is_current
+        column: is_current
+
+# 只登记进 JOIN 注册表，编译器不生成这些 JOIN。
+source_joins:
+  - left: fact_observation
+    right: dim_date
+    keys: [date_key]
+  - left: fact_observation
+    right: dim_subject
+    keys: [subject_id]
+  - left: fact_observation
+    right: dim_source
+    keys: [source_id]
+  - left: fact_event
+    right: dim_date
+    keys: [date_key]
+  - left: fact_event
+    right: dim_subject
+    keys: [subject_id]
+  - left: fact_event
+    right: dim_source
+    keys: [source_id]

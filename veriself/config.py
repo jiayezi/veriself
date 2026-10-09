@@ -17,7 +17,8 @@ IN_SOURCE_CHECKOUT: bool = (PROJECT_ROOT / "pyproject.toml").is_file()
 def _resolve_dir(env_var: str, default: Path) -> Path:
     """目录解析：**环境变量 > 包内默认目录**。
 
-    契约与 `schema.sql` 一样就地放在包内（`veriself/metrics`、`veriself/semantic_models`）。
+    契约与 `schema.sql` 一样就地放在包内（`veriself/metrics`、`veriself/semantic_models`、
+    `veriself/domains`）。
     editable 安装与 wheel 安装的 `__file__` 都指向包目录，因此源码布局和安装布局是同一条路径。
     """
     override = os.environ.get(env_var)
@@ -32,6 +33,8 @@ METRICS_DIR: Path = _resolve_dir("VERISELF_METRICS_DIR", _PKG_DIR / "metrics")
 SEMANTIC_MODELS_DIR: Path = _resolve_dir(
     "VERISELF_SEMANTIC_MODELS_DIR", _PKG_DIR / "semantic_models"
 )
+#: 查询期领域描述符目录。默认文件是 `person.yml`。物化用的语义模型不在这里。
+DOMAINS_DIR: Path = _resolve_dir("VERISELF_DOMAINS_DIR", _PKG_DIR / "domains")
 #: 数仓文件所在目录。源码布局下仍是 `仓库根/data`（**行为与改动前逐字一致**）；
 #: 安装后写到当前工作目录下的 `data/`（可写、可预期），可用 `VERISELF_DATA_DIR` 覆盖。
 DATA_DIR: Path = Path(

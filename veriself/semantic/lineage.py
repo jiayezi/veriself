@@ -7,11 +7,11 @@
 1. `formula_sql` 引用抽取：`metric('x')` 调用与 `表.列` 引用，
    解析统一委托 `veriself.sqlrefs`（sqlglot AST）——本模块不再持有 SQL 正则。
 2. `upstream_metrics` 拓扑排序 + 环检测（契约 §2 规则 5）。
-3. JOIN 路径注册表：契约 §1 DDL 里可声明的等值连接路径，供 AST 校验使用（契约 §5 第 4 条）。
+3. JOIN 路径注册表：等值连接从领域文件派生，供 AST 校验使用（契约 §5 第 4 条）。
+   `dim_metric` 是引擎表，不在领域文件里，这里补上 `metric_id` 这一条。
 
-`fact_subject_day` 与 `fact_metric_value` 的连接键是复合键
-`(subject_id, date_key)`。`declared_join_keys` 返回的是**必须同时出现**的列，
-不是可任选其一的列。只声明 `date_key` 会在多主体时把同一天的情境乘到每个主体上。
+同一对表的多列是复合键，必须同时出现。`fact_subject_day` 只声明 `date_key`
+会在多主体时把同一天的情境乘到每个主体上。
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 
 from veriself import sqlrefs
+from veriself.domain import default_domain
 
 __all__ = [
     "DIMENSION_TABLES",
@@ -135,30 +136,22 @@ def topological_layers(upstream: Mapping[str, Sequence[str]]) -> list[list[str]]
 
 
 # ---------------------------------------------------------------- JOIN 路径注册表
+_DOMAIN = default_domain()
+#: 口径定义表。版本列在两侧不同名（metric_version / version），AST 等值检查要求列名相同，
+#: 因此只登记 metric_id。读取 grain 的 SQL 必须再加
+#: `dim_metric.version = fact_metric_value.metric_version`，否则多版本会乘行。
+_DEFINITION_TABLE = "dim_metric"
+
 #: `semantic` 编译产物允许出现的表（读路径白名单）
-READ_PATH_TABLES: frozenset[str] = frozenset(
-    {"fact_metric_value", "dim_date", "fact_subject_day", "dim_subject"}
-)
-#: 查询期可 JOIN 的表。`fact_subject_day` 是日事实，放在这里是因为它提供 `context.*` 列。
-DIMENSION_TABLES: frozenset[str] = frozenset({"dim_date", "fact_subject_day", "dim_subject"})
+READ_PATH_TABLES: frozenset[str] = _DOMAIN.read_path_tables()
+#: 查询期可 JOIN 的表。日情境事实放在这里是因为它提供 `context.*` 列。
+DIMENSION_TABLES: frozenset[str] = _DOMAIN.dimension_tables()
 
 #: 已声明等值连接路径 `(左表, 右表, 等值列)`（无向）。
 #: 同一对表出现多次时，这些列必须**同时**出现在 ON 里（复合键），不是任选其一。
 JOIN_EDGES: tuple[tuple[str, str, str], ...] = (
-    ("fact_metric_value", "dim_date", "date_key"),
-    ("fact_metric_value", "dim_subject", "subject_id"),
-    # 版本列在两侧不同名（metric_version / version），AST 等值检查要求列名相同，
-    # 因此这里只登记 metric_id。读取 grain 的 SQL 必须再加
-    # `dim_metric.version = fact_metric_value.metric_version`，否则多版本会乘行。
-    ("fact_metric_value", "dim_metric", "metric_id"),
-    ("fact_metric_value", "fact_subject_day", "subject_id"),
-    ("fact_metric_value", "fact_subject_day", "date_key"),
-    ("fact_observation", "dim_date", "date_key"),
-    ("fact_observation", "dim_subject", "subject_id"),
-    ("fact_observation", "dim_source", "source_id"),
-    ("fact_event", "dim_date", "date_key"),
-    ("fact_event", "dim_subject", "subject_id"),
-    ("fact_event", "dim_source", "source_id"),
+    *_DOMAIN.equijoin_edges(),
+    (_DOMAIN.metric_table, _DEFINITION_TABLE, "metric_id"),
 )
 
 _EDGE_INDEX: dict[tuple[str, str], tuple[str, ...]] = {}

@@ -9,8 +9,8 @@
    **同粒度不聚合**（取原始值 `ANY_VALUE`，等价于原始值，因为分组内每个指标只有一行）。
 3. **当前有效版本**：`valid_to IS NULL` **且** `metric_version = 契约 version`，
    只按 `valid_to IS NULL` 会把旧口径版本也算进来。
-4. **RLS 改写**：owner 注入 `subject_id = ?`（只看自己）；partner/researcher 跨主体聚合，
-   `aggregate_min5` 追加 `HAVING COUNT(DISTINCT subject_id) >= 5 AND COUNT(*) >= 5`。
+4. **RLS 改写**：owner 注入 `实体键 = ?`（列名来自领域文件，绑定值仍是进程上的主体）；
+   partner/researcher 跨主体聚合，`aggregate_min5` 追加人数与行数下限。
 5. **扫描量预检**：执行前 `EXPLAIN` 取估算行数，超 `config.SCAN_LIMIT_HINT` 拒绝。
 6. **审计**：返回审计头（契约 §4），`audit=True` 时写 `fact_audit_log`
    （调用 `veriself.warehouse.loader.write_audit`；缺模块/签名不符时降级并记日志）。
@@ -30,6 +30,7 @@ import duckdb
 from sqlglot import exp
 
 from veriself import config
+from veriself.domain import QueryRelation, default_domain
 from veriself.semantic import enforcement
 from veriself.semantic import lineage as lineage_mod
 from veriself.semantic.contract import AS_OF_DEFINITION, MetricContract
@@ -106,6 +107,9 @@ class _Builder:
         self.rls = rls
         self.values: list[object] = []
         self.bucket = enforcement.bucket_field(grain)
+        self.domain = default_domain()
+        self._fact = self.domain.metric_alias
+        self._time = self.domain.time_dimension
 
     # -------------------------------------------------- 小工具
     def ph(self, value: object) -> exp.Placeholder:
@@ -121,21 +125,25 @@ class _Builder:
         """构造带引号的限定列引用。"""
         return exp.column(name, table=table, quoted=True)
 
-    @staticmethod
-    def _alias_for(table: str) -> str:
-        return {
-            "dim_date": "d",
-            "fact_subject_day": "sd",
-            "dim_subject": "s",
-            "fact_metric_value": "f",
-        }[table]
+    def _alias_for(self, table: str) -> str:
+        return self.domain.alias_for(table)
 
     def _needs_join(self, table: str) -> bool:
-        if table not in lineage_mod.DIMENSION_TABLES or table == "dim_date":
-            return False
+        """按需连接的表：维度或过滤器引用了它才 JOIN。时间维始终连接，不走这里。"""
         return any(item.table == table for item in self.plan.dimensions) or any(
             item.table == table for item in self.plan.filters
         )
+
+    def _join_on(self, relation: QueryRelation) -> exp.Expr:
+        """等值连接键，外加领域声明的谓词。单键不加多余的 AND。"""
+        eqs: list[exp.Expr] = [
+            self.col(key, relation.alias).eq(self.col(key, self._fact)) for key in relation.keys
+        ]
+        if relation.predicate == "is_current":
+            eqs.append(self.col("is_current", relation.alias).is_(exp.Boolean(this=True)))
+        if len(eqs) == 1:
+            return eqs[0]
+        return exp.and_(*eqs)
 
     def _rollup(self, contract: MetricContract) -> bool:
         """该指标是否需要（跨时间粒度）上卷聚合。"""
@@ -148,7 +156,7 @@ class _Builder:
 
     # -------------------------------------------------- 各部分
     def _bucket_expr(self) -> exp.Expr:
-        date_col = self.col("date", "d")
+        date_col = self.col(self._time.calendar_column or "date", self._time.alias)
         if self.grain == "day":
             return date_col
         # DuckDB 的 date_trunc 返回 TIMESTAMP，这里统一裁成 DATE，输出与 date.day 一致
@@ -157,8 +165,8 @@ class _Builder:
     def _metric_expr(self, contract: MetricContract) -> exp.Expr:
         """单个指标的输出表达式（`CASE WHEN metric_id = ?` + 该指标的 agg）。"""
         case = exp.Case().when(
-            self.col("metric_id", "f").eq(self.ph(contract.metric_id)),
-            self.col("value", "f"),
+            self.col("metric_id", self._fact).eq(self.ph(contract.metric_id)),
+            self.col("value", self._fact),
         )
         need_agg = self._rollup(contract) or self._cross_subject()
         if not need_agg:
@@ -173,7 +181,7 @@ class _Builder:
         if contract.agg == "max":
             return exp.Max(this=case)
         if contract.agg == "last":
-            return exp.ArgMax(this=case, expression=self.col("date_key", "f"))
+            return exp.ArgMax(this=case, expression=self.col(self.domain.time_key, self._fact))
         raise config.ContractError(f"指标 '{contract.metric_id}' 的 agg='{contract.agg}' 不受支持")
 
     def _select_list(self) -> list[exp.Expr]:
@@ -192,8 +200,8 @@ class _Builder:
         """`(metric_id = ? AND metric_version = ?) OR ...` —— 当前有效版本。"""
         parts = [
             exp.and_(
-                self.col("metric_id", "f").eq(self.ph(contract.metric_id)),
-                self.col("metric_version", "f").eq(self.ph(int(contract.version))),
+                self.col("metric_id", self._fact).eq(self.ph(contract.metric_id)),
+                self.col("metric_version", self._fact).eq(self.ph(int(contract.version))),
             )
             for contract in self.metrics
         ]
@@ -202,7 +210,7 @@ class _Builder:
     def _date_filters(self) -> list[exp.Expr]:
         conditions: list[exp.Expr] = []
         for item in self.plan.filters:
-            if item.table != "dim_date":
+            if item.table != self._time.table:
                 continue
             ref = self.col(item.column, self._alias_for(item.table))
             if item.kind == "between":
@@ -226,7 +234,7 @@ class _Builder:
     def _other_filters(self) -> list[exp.Expr]:
         conditions: list[exp.Expr] = []
         for item in self.plan.filters:
-            if item.table == "dim_date":
+            if item.table == self._time.table:
                 continue
             conditions.append(self._equality(self.col(item.column, self._alias_for(item.table)), item.values))
         return conditions
@@ -239,7 +247,9 @@ class _Builder:
     def _having(self) -> exp.Expr:
         size = int(self.rls.min_group_size) if self.rls and self.rls.min_group_size else config.MIN_GROUP_SIZE
         subjects = exp.GTE(
-            this=exp.Count(this=exp.Distinct(expressions=[self.col("subject_id", "f")])),
+            this=exp.Count(
+                this=exp.Distinct(expressions=[self.col(self.domain.entity_key, self._fact)])
+            ),
             expression=exp.Literal.number(size),
         )
         # 行数下限一并保留（人是 ≥5，且分组内至少有 5 行），两条都写进 SQL 供审计阅读
@@ -259,39 +269,25 @@ class _Builder:
     # -------------------------------------------------- 组装
     def build(self) -> tuple[exp.Select, list[object]]:
         """构造 SELECT，返回 (AST, 绑定值列表)。"""
-        fact = exp.table_("fact_metric_value", alias="f", quoted=True)
+        fact = exp.table_(self.domain.metric_table, alias=self._fact, quoted=True)
         query = exp.select(*self._select_list()).from_(fact)
-        # 内连接 dim_date（Lead 明确要求 inner join）
-        query = query.join(
-            exp.table_("dim_date", alias="d", quoted=True),
-            on=self.col("date_key", "d").eq(self.col("date_key", "f")),
-            join_type="inner",
-        )
-        if self._needs_join("fact_subject_day"):
+        for relation in self.domain.query_relations:
+            if relation.join == "when_referenced" and not self._needs_join(relation.table):
+                continue
             query = query.join(
-                exp.table_("fact_subject_day", alias="sd", quoted=True),
-                on=exp.and_(
-                    self.col("subject_id", "sd").eq(self.col("subject_id", "f")),
-                    self.col("date_key", "sd").eq(self.col("date_key", "f")),
-                ),
-                join_type="inner",
-            )
-        if self._needs_join("dim_subject"):
-            query = query.join(
-                exp.table_("dim_subject", alias="s", quoted=True),
-                on=exp.and_(
-                    self.col("subject_id", "s").eq(self.col("subject_id", "f")),
-                    self.col("is_current", "s").is_(exp.Boolean(this=True)),
-                ),
+                exp.table_(relation.table, alias=relation.alias, quoted=True),
+                on=self._join_on(relation),
                 join_type="inner",
             )
 
         conditions: list[exp.Expr] = [
-            self.col("valid_to", "f").is_(exp.Null()),
+            self.col("valid_to", self._fact).is_(exp.Null()),
             self._metric_predicate(),
         ]
         if self.rls and self.rls.subject_scope:
-            conditions.append(self.col("subject_id", "f").eq(self.ph(config.SUBJECT_ID)))
+            conditions.append(
+                self.col(self.domain.entity_key, self._fact).eq(self.ph(config.SUBJECT_ID))
+            )
         conditions.extend(self._date_filters())
         conditions.extend(self._other_filters())
         query = query.where(exp.and_(*conditions))
@@ -406,54 +402,62 @@ def _connect():
 
 
 def _guard_context_join(conn, sql: str) -> None:
-    """fail-closed：存量库的 `fact_subject_day` 缺复合键时拒绝，而不是按残缺键给出错数。"""
-    if "fact_subject_day" not in sql:
-        return
-    try:
-        info = conn.execute("PRAGMA table_info('fact_subject_day')").fetchall()
-    except duckdb.Error:
-        return
-    if not info:  # 表不存在，交给主查询报错
-        return
-    columns = {str(row[1]) for row in info}
-    missing = {"subject_id", "date_key"} - columns
-    if missing:
-        raise config.EnforcementError(
-            "ast_join_path",
-            f"{config.REASON_PREFIXES['ast']} fact_subject_day 缺少已声明 JOIN 路径所需的"
-            f" {sorted(missing)} 列（连接必须同时用 subject_id 与 date_key）；"
-            f"请重建数仓（veriself synth && veriself init）",
-        )
+    """fail-closed：存量库缺复合连接键时拒绝，而不是按残缺键给出错数。"""
+    for relation in default_domain().query_relations:
+        if relation.join != "when_referenced" or len(relation.keys) < 2:
+            continue
+        if relation.table not in sql:
+            continue
+        try:
+            info = conn.execute(f"PRAGMA table_info('{relation.table}')").fetchall()
+        except duckdb.Error:
+            return
+        if not info:  # 表不存在，交给主查询报错
+            return
+        columns = {str(row[1]) for row in info}
+        required = set(relation.keys)
+        missing = required - columns
+        if missing:
+            raise config.EnforcementError(
+                "ast_join_path",
+                f"{config.REASON_PREFIXES['ast']} {relation.table} 缺少已声明 JOIN 路径所需的"
+                f" {sorted(missing)} 列（连接必须同时用 {' 与 '.join(sorted(required))}）；"
+                f"请重建数仓（veriself synth && veriself init）",
+            )
 
 
 def _subject_scoped(tree_sql: str) -> bool:
-    """AST 判断编译产物是否带了 `subject_id = ?` 行级过滤（只看 WHERE，不看 HAVING 的分组计数）。"""
+    """AST 判断编译产物是否带了实体键等值过滤（只看 WHERE，不看 HAVING 的分组计数）。"""
     import sqlglot
 
+    entity_key = default_domain().entity_key
     tree = sqlglot.parse_one(tree_sql, dialect="duckdb")
     where = tree.args.get("where")
     if where is None:
         return False
     for eq in where.find_all(exp.EQ):
         left, right = eq.left, eq.right
-        if isinstance(left, exp.Column) and left.name == "subject_id" and not isinstance(right, exp.Column):
+        if isinstance(left, exp.Column) and left.name == entity_key and not isinstance(right, exp.Column):
             return True
-        if isinstance(right, exp.Column) and right.name == "subject_id" and not isinstance(left, exp.Column):
+        if isinstance(right, exp.Column) and right.name == entity_key and not isinstance(left, exp.Column):
             return True
     return False
 
 
 def _warn_role_mismatch(compiled: CompiledQuery, role: config.Role) -> None:
     """`CompiledQuery`（冻结结构）不带角色，这里对"编译期角色 ≠ 执行期角色"给出告警。"""
+    entity_key = default_domain().entity_key
     scoped = _subject_scoped(compiled.sql)
     if scoped and role is not config.Role.OWNER:
         _log.warning(
-            "编译产物带 subject_id 行级过滤，但执行角色是 %s；请用与 compile_query 相同的角色执行",
+            "编译产物带 %s 行级过滤，但执行角色是 %s；请用与 compile_query 相同的角色执行",
+            entity_key,
             role.value,
         )
     elif not scoped and role is config.Role.OWNER:
         _log.warning(
-            "执行角色是 owner，但编译产物没有 subject_id 行级过滤；请用与 compile_query 相同的角色执行"
+            "执行角色是 owner，但编译产物没有 %s 行级过滤；请用与 compile_query 相同的角色执行",
+            entity_key,
         )
 
 

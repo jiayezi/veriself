@@ -267,8 +267,8 @@ CLI (veriself)   MCP server   ← LLM 仅有的两个入口
 git clone <this repo> && cd veriself
 uv sync --extra dev          # uv.lock 是依赖的唯一事实来源
 
-veriself init          # 建 DuckDB schema、加载指标契约
 veriself synth         # 生成 3 年确定性合成数据
+veriself init          # 建 DuckDB schema、加载指标契约
 veriself metrics list  # 查看 18 个已注册指标
 veriself query --metrics subject.sleep_debt_7d --filters '{"date.last_n_days": 30}' --role owner
 veriself reject subject.focus_skore    # 看拒绝原因与相近建议

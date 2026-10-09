@@ -79,14 +79,29 @@ def _console(file: Any) -> Console:
         interactive = bool(file.isatty())
     except Exception:  # noqa: BLE001  # pragma: no cover - 某些被替换的流没有 isatty
         interactive = False
-    width = None
-    if not interactive:
-        width = _NON_TTY_WIDTH
-        try:
-            width = max(width, shutil.get_terminal_size().columns)
-        except Exception:  # noqa: BLE001, S110  # pragma: no cover - 取不到终端宽度就用固定宽度
-            pass
-    return Console(file=file, width=width, markup=False, highlight=False, emoji=False)
+    if interactive:
+        return Console(file=file, markup=False, highlight=False, emoji=False)
+    width = _NON_TTY_WIDTH
+    try:
+        width = max(width, shutil.get_terminal_size().columns)
+    except Exception:  # noqa: BLE001, S110  # pragma: no cover - 取不到终端宽度就用固定宽度
+        pass
+    # rich 在 TERM=dumb 且 height 为空时会忽略 width，退回 80 列；
+    # legacy Windows 控制台还会把同时给出的 width 减 1，差多少补多少。
+    kwargs: dict[str, Any] = {
+        "file": file,
+        "width": width,
+        "height": 1024,
+        "markup": False,
+        "highlight": False,
+        "emoji": False,
+    }
+    console = Console(**kwargs)
+    short = width - console.size.width
+    if short > 0:
+        kwargs["width"] = width + short
+        console = Console(**kwargs)
+    return console
 
 
 def out() -> Console:
