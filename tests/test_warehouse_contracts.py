@@ -6,7 +6,7 @@
    `formula_sql` 里的每个 `表.列` 都在 `lineage.sources` 中、每个 `metric('x')` 都在
    `lineage.upstream_metrics` 中、白名单取值合法、`rls_policy` 分布与清单一致、无环。
 2. `metrics/history/*.yml`：2 个历史版本（`version=1`），与当前版本口径真实不同，
-   且不被 `metrics/*.yml` 的非递归扫描当成主目录契约。
+   不被 `load_contracts()` 扫进查询目录，但会和当前版一起写入 `dim_metric`。
 3. `schema.sql` 是唯一 DDL 来源，9 张表的列名/类型/可空性/主键与契约逐字一致，
    `ensure_schema` 幂等。
 4. `loader`：`upsert_dim_metric` 幂等且哈希来自 `veriself.contract_hash`；
@@ -207,7 +207,7 @@ EXPECTED_SCHEMA: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("unit", "VARCHAR", "YES"),
         ("direction", "VARCHAR", "YES"),
         ("grain", "VARCHAR", "YES"),
-        ("version", "INTEGER", "YES"),
+        ("version", "INTEGER", "NO"),
         ("contract_hash", "VARCHAR", "YES"),
         ("status", "VARCHAR", "YES"),
     ),
@@ -263,7 +263,7 @@ EXPECTED_PRIMARY_KEYS: dict[str, set[str]] = {
     "dim_subject": {"subject_sk"},
     "dim_source": {"source_id"},
     "fact_subject_day": {"subject_id", "date_key"},
-    "dim_metric": {"metric_id"},
+    "dim_metric": {"metric_id", "version"},
     # 观测用**业务自然键**：同一主体同一通道同一时刻只应有一条读数
     "fact_observation": {"subject_id", "observed_at", "channel"},
     # 事件刻意不加自然键：同一分钟的多笔消费是合法数据，事件真身份须由上游提供
@@ -777,6 +777,64 @@ def test_upsert_dim_metric_writes_18_rows_and_is_idempotent(conn, contracts: dic
     )
 
 
+def test_history_versions_coexist_and_current_upsert_does_not_replace_them(
+    conn, contracts: dict, history: dict
+) -> None:
+    """同一 metric_id 的历史版与当前版同时在表里；改当前版不会盖掉历史版。
+
+    只按 metric_id 去 join 会把两个版本乘到事实行上。带上
+    `dim_metric.version = fact_metric_value.metric_version` 才取到这一行的口径。
+    """
+    from veriself.semantic.contract import load_definition_versions
+
+    definitions = load_definition_versions()
+    assert len(definitions) == len(contracts) + len(history) == 20
+    assert upsert_dim_metric(conn, definitions) == 20
+    assert upsert_dim_metric(conn, definitions) == 20
+    assert conn.execute("SELECT count(*) FROM dim_metric").fetchone()[0] == 20
+
+    stored = {
+        (metric_id, version): fingerprint
+        for metric_id, version, fingerprint in conn.execute(
+            "SELECT metric_id, version, contract_hash FROM dim_metric"
+            " WHERE metric_id IN ('subject.sleep_debt_7d', 'subject.focus_score_daily')"
+        ).fetchall()
+    }
+    assert stored[("subject.sleep_debt_7d", 1)] == contract_hash(history["subject.sleep_debt_7d"])
+    assert stored[("subject.sleep_debt_7d", 2)] == contract_hash(contracts["subject.sleep_debt_7d"])
+    assert stored[("subject.focus_score_daily", 1)] == contract_hash(history["subject.focus_score_daily"])
+    assert stored[("subject.focus_score_daily", 1)] != stored[("subject.focus_score_daily", 2)]
+
+    updated = dict(contracts["subject.sleep_debt_7d"], display_name="近7日睡眠债（改名）")
+    upsert_dim_metric(conn, {"subject.sleep_debt_7d": updated})
+    names = dict(
+        conn.execute(
+            "SELECT version, display_name FROM dim_metric WHERE metric_id = 'subject.sleep_debt_7d'"
+        ).fetchall()
+    )
+    assert names[1] == history["subject.sleep_debt_7d"]["display_name"]
+    assert names[2] == "近7日睡眠债（改名）"
+    assert conn.execute("SELECT count(*) FROM dim_metric").fetchone()[0] == 20
+
+    conn.execute(
+        "INSERT INTO fact_metric_value VALUES "
+        "('subject.sleep_debt_7d', 'S001', 20260101, 1.0, 2, 'sha256:test', "
+        "TIMESTAMP '2026-01-01', TIMESTAMP '2026-01-01', NULL)"
+    )
+    fanout = conn.execute(
+        "SELECT count(*) FROM fact_metric_value AS f "
+        "JOIN dim_metric AS d ON d.metric_id = f.metric_id "
+        "WHERE f.metric_id = 'subject.sleep_debt_7d'"
+    ).fetchone()[0]
+    matched = conn.execute(
+        "SELECT d.version, d.grain FROM fact_metric_value AS f "
+        "JOIN dim_metric AS d ON d.metric_id = f.metric_id AND d.version = f.metric_version "
+        "WHERE f.metric_id = 'subject.sleep_debt_7d'"
+    ).fetchall()
+    assert fanout == 2
+    assert matched == [(2, "day")]
+
+
 def _demo_contract(version: int) -> dict:
     return {"metric_id": "subject.demo", "version": version, "contract_hash": f"sha256:v{version}"}
 
@@ -1185,7 +1243,7 @@ def test_date_key_lies_inside_its_derived_bucket(golden_warehouse) -> None:
     rows = conn.execute(
         "SELECT f.metric_id, f.date_key, d.grain"
         " FROM fact_metric_value AS f"
-        " JOIN dim_metric AS d ON d.metric_id = f.metric_id"
+        " JOIN dim_metric AS d ON d.metric_id = f.metric_id AND d.version = f.metric_version"
         " WHERE f.valid_to IS NULL"
     ).fetchall()
     assert rows, "基准库应有事实行"
@@ -1218,7 +1276,7 @@ def test_date_key_is_last_day_with_data_in_bucket(golden_warehouse) -> None:
     buckets = conn.execute(
         "SELECT f.metric_id, f.date_key, d.grain"
         " FROM fact_metric_value AS f"
-        " JOIN dim_metric AS d ON d.metric_id = f.metric_id"
+        " JOIN dim_metric AS d ON d.metric_id = f.metric_id AND d.version = f.metric_version"
         " WHERE f.valid_to IS NULL"
     ).fetchall()
 

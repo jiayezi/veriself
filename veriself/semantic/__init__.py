@@ -21,6 +21,7 @@ from veriself.semantic.contract import (
     AS_OF_DEFINITION,
     MetricContract,
     load_contracts,
+    load_definition_versions,
     metric_contract_from_mapping,
 )
 from veriself.semantic.enforcement import (
@@ -49,5 +50,6 @@ __all__ = [  # noqa: RUF022 — 按契约分组（冻结 API 在前），刻意�
     "validate_ast",
     "check_ast_join_path",
     "estimate_scan_rows",
+    "load_definition_versions",
     "metric_contract_from_mapping",
 ]

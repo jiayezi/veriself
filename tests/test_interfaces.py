@@ -162,6 +162,11 @@ def _fake_semantic(
         log["metrics_dir"] = None if metrics_dir is None else str(metrics_dir)
         return dict(table)
 
+    def load_definition_versions(metrics_dir: Any = None) -> list[Any]:
+        log["load_definition_versions"] = True
+        log["metrics_dir"] = None if metrics_dir is None else str(metrics_dir)
+        return list(table.values())
+
     def list_metrics(loaded: dict[str, Any]) -> list[dict[str, Any]]:
         log["list_metrics"] = True
         keys = ("metric_id", "display_name", "unit", "direction", "grain", "status", "version")
@@ -269,6 +274,7 @@ def _fake_semantic(
 
     return SimpleNamespace(
         load_contracts=load_contracts,
+        load_definition_versions=load_definition_versions,
         list_metrics=list_metrics,
         describe_metric=describe_metric,
         QueryRequest=Request,

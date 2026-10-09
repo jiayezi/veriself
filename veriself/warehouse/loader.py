@@ -211,11 +211,14 @@ def ensure_schema(conn: Any) -> None:
 def upsert_dim_metric(conn: Any, contracts: Any) -> int:
     """把指标契约编译写入 `dim_metric`，返回写入（含更新）行数。
 
-    - 主键 `metric_id` 冲突时更新，因此可重复调用（幂等）。
+    - 主键是 `(metric_id, version)`。同一指标的当前版与历史版可以共存；
+      冲突时只更新该版本的描述列，不会改掉另一个版本。
+    - 不删除调用方这次没带来的版本：历史行留在表里，直到显式重建库。
     - `contract_hash` 走 `veriself.contract_hash`；契约自带该字段时以契约为准，
       保证 `dim_metric` 与审计头的哈希同源。
-    - 调用方只应传**当前版本**契约（`metrics/*.yml`）；历史版本（`metrics/history/`）
-      与当前版本共用 `metric_id`，写入会覆盖当前行的 version。本模块不做该校验。
+    - 本函数不读目录。`veriself init` 传入的是当前契约加上 `metrics/history/`
+      （见 `semantic.contract.load_definition_versions`）。只传当前版时，
+      已有的历史行保持不动。
     """
     rows: list[tuple[Any, ...]] = []
     for key, contract in _iter_contracts(contracts):
@@ -223,6 +226,8 @@ def upsert_dim_metric(conn: Any, contracts: Any) -> int:
         if not metric_id:
             raise ValueError("契约缺少 metric_id，无法写入 dim_metric")
         version = _field(contract, "version", 1)
+        if version is None:
+            raise ValueError(f"契约 {metric_id} 缺少 version，无法写入 dim_metric")
         rows.append(
             (
                 str(metric_id),
@@ -230,7 +235,7 @@ def upsert_dim_metric(conn: Any, contracts: Any) -> int:
                 _field(contract, "unit"),
                 _field(contract, "direction"),
                 _field(contract, "grain"),
-                int(version) if version is not None else None,
+                int(version),
                 _resolve_hash(contract),
                 _field(contract, "status"),
             )
@@ -239,12 +244,13 @@ def upsert_dim_metric(conn: Any, contracts: Any) -> int:
         return 0
 
     placeholders = ", ".join("?" * len(_DIM_METRIC_COLUMNS))
+    update_columns = [
+        column for column in _DIM_METRIC_COLUMNS if column not in ("metric_id", "version")
+    ]
     sql = (
         f"INSERT INTO dim_metric ({', '.join(_DIM_METRIC_COLUMNS)}) VALUES ({placeholders}) "
-        "ON CONFLICT (metric_id) DO UPDATE SET "
-        + ", ".join(
-            f"{column} = excluded.{column}" for column in _DIM_METRIC_COLUMNS[1:]
-        )
+        "ON CONFLICT (metric_id, version) DO UPDATE SET "
+        + ", ".join(f"{column} = excluded.{column}" for column in update_columns)
     )
     conn.executemany(sql, rows)
     return len(rows)

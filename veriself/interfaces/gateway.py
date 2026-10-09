@@ -42,6 +42,7 @@ __all__ = [
     "is_project_error",
     "list_metric_summaries",
     "load_contracts",
+    "load_definition_versions",
     "materialize_all",
     "materializer",
     "metric_ids",
@@ -287,6 +288,27 @@ def load_contracts(metrics_dir: Path | str | None = None) -> dict[str, Any]:
     return {str(key): value for key, value in contracts.items()}
 
 
+def load_definition_versions(metrics_dir: Path | str | None = None) -> list[Any]:
+    """当前口径加上 `metrics/history/`，供写入口径版本表。
+
+    返回列表：同一个 `metric_id` 可以有多个版本，不能收成按 metric_id 去重的映射。
+    查询与物化仍用 `load_contracts()`。
+    """
+    module = semantic()
+    fn = getattr(module, "load_definition_versions", None)
+    if not callable(fn):
+        raise GatewayUnavailable(_SEMANTIC_MODULE, "缺少 load_definition_versions()")
+    versions = fn(Path(metrics_dir)) if metrics_dir is not None else fn()
+    if isinstance(versions, Mapping):
+        return list(versions.values())
+    if not isinstance(versions, Sequence) or isinstance(versions, (str, bytes)):
+        raise GatewayUnavailable(
+            _SEMANTIC_MODULE,
+            f"load_definition_versions() 返回 {type(versions).__name__}，期望序列",
+        )
+    return list(versions)
+
+
 def metric_ids(contracts: Mapping[str, Any]) -> list[str]:
     """契约里的全部 metric_id（排序后，供建议与展示使用）。"""
     ids: set[str] = set()
@@ -512,14 +534,25 @@ def ensure_schema(conn: Any, *, db_path: Any = None) -> str:
     return label
 
 
-def upsert_dim_metrics(conn: Any, contracts: Mapping[str, Any]) -> int:
+def upsert_dim_metrics(conn: Any, contracts: Mapping[str, Any] | Sequence[Any]) -> int:
     """把契约写入维度表（`warehouse` 层的 `upsert_dim_metric`），返回处理的契约数。
+
+    映射按 `metric_id` 唯一，用于只写当前版。序列用于当前版加历史版：
+    同一个 `metric_id` 的不同 `version` 都必须留下，不能收成映射。
 
     下游签名未冻结，兼容两种写法：`upsert_dim_metric(conn, contract)`（逐个）
     与 `upsert_dim_metric(conn, contracts)`（一次性）。
     """
     if not contracts:
         return 0
+    if isinstance(contracts, Mapping):
+        payload: Mapping[str, Any] | list[Any] = dict(contracts)
+        items = list(payload.values())
+    elif isinstance(contracts, Sequence) and not isinstance(contracts, (str, bytes)):
+        payload = list(contracts)
+        items = payload
+    else:
+        raise TypeError(f"contracts 必须是映射或序列，实际是 {type(contracts).__name__}")
     fn, label = _member(_WAREHOUSE_MODULES, "upsert_dim_metric", get_module=_warehouse_module)
     params = _param_names(fn)
     batch_names = {"contracts", "all_contracts", "metric_contracts", "catalog"}
@@ -529,22 +562,22 @@ def upsert_dim_metrics(conn: Any, contracts: Mapping[str, Any]) -> int:
             candidates={
                 "conn": conn,
                 "connection": conn,
-                "contracts": dict(contracts),
-                "metric_contracts": dict(contracts),
-                "catalog": dict(contracts),
+                "contracts": payload,
+                "metric_contracts": payload,
+                "catalog": payload,
             },
-            fallback=(conn, dict(contracts)),
+            fallback=(conn, payload),
             label=label,
         )
-        return len(contracts)
-    for contract in contracts.values():
+        return len(items)
+    for contract in items:
         invoke_unfrozen(
             fn,
             candidates={"conn": conn, "connection": conn, "contract": contract, "c": contract},
             fallback=(conn, contract),
             label=label,
         )
-    return len(contracts)
+    return len(items)
 
 
 def materialize_all(conn: Any, contracts: Mapping[str, Any]) -> dict[str, int] | None:

@@ -147,6 +147,9 @@ DIMENSION_TABLES: frozenset[str] = frozenset({"dim_date", "fact_subject_day", "d
 JOIN_EDGES: tuple[tuple[str, str, str], ...] = (
     ("fact_metric_value", "dim_date", "date_key"),
     ("fact_metric_value", "dim_subject", "subject_id"),
+    # 版本列在两侧不同名（metric_version / version），AST 等值检查要求列名相同，
+    # 因此这里只登记 metric_id。读取 grain 的 SQL 必须再加
+    # `dim_metric.version = fact_metric_value.metric_version`，否则多版本会乘行。
     ("fact_metric_value", "dim_metric", "metric_id"),
     ("fact_metric_value", "fact_subject_day", "subject_id"),
     ("fact_metric_value", "fact_subject_day", "date_key"),

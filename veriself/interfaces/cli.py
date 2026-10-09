@@ -375,7 +375,9 @@ def init_cmd(
         connection = gateway.open_warehouse(db_path)
         try:
             schema_source = gateway.ensure_schema(connection, db_path=db_path)
-            dim_contracts = gateway.upsert_dim_metrics(connection, contracts)
+            dim_contracts = gateway.upsert_dim_metrics(
+                connection, gateway.load_definition_versions(metrics_dir)
+            )
             materialized = gateway.materialize_all(connection, contracts)
         finally:
             connection.close()
@@ -667,7 +669,9 @@ def demo_cmd(
         connection = gateway.open_warehouse(db_path)
         try:
             schema_source = gateway.ensure_schema(connection, db_path=db_path)
-            dim_contracts = gateway.upsert_dim_metrics(connection, contracts)
+            dim_contracts = gateway.upsert_dim_metrics(
+                connection, gateway.load_definition_versions(metrics_dir)
+            )
             materialized = gateway.materialize_all(connection, contracts)
         finally:
             connection.close()

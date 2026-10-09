@@ -59,12 +59,12 @@ def e2e():
 
     conn = duckdb.connect(str(db_path))
 
-    from veriself.semantic import load_contracts
+    from veriself.semantic import load_contracts, load_definition_versions
     from veriself.warehouse.loader import ensure_schema, upsert_dim_metric
 
     ensure_schema(conn)
     contracts = load_contracts()
-    upsert_dim_metric(conn, contracts)
+    upsert_dim_metric(conn, load_definition_versions())
 
     from veriself.materializer import materialize_all
 
@@ -287,7 +287,8 @@ def test_contract_hash_is_consistent_across_modules(e2e):
         assert side_a == side_b, f"{metric_id}: semantic={side_a} materializer={side_b}"
         # dim_metric 里存的也必须是同一个
         stored = e2e["conn"].execute(
-            "SELECT contract_hash FROM dim_metric WHERE metric_id = ?", [metric_id]
+            "SELECT contract_hash FROM dim_metric WHERE metric_id = ? AND version = ?",
+            [metric_id, int(contract.version)],
         ).fetchone()
         assert stored and stored[0] == side_a, f"{metric_id}: dim_metric 与契约哈希不一致"
 

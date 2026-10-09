@@ -1,4 +1,4 @@
-# 历史版本（as-of 演示用，不参与 metrics/ 主目录加载）
+# 历史版本：不参与 load_contracts()（查询/物化），由 load_definition_versions() 写入 dim_metric。
 # metric_id 与 metrics/subject.focus_score_daily.yml 相同，version=1；口径差异：把 40-90 的原始分线性拉伸到 0-100（当前版本 version=2 为原始分直取并截断）。
 metric_id: subject.focus_score_daily
 version: 1

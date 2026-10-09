@@ -49,15 +49,21 @@ CREATE TABLE IF NOT EXISTS dim_source (
     reliability_tier VARCHAR                -- 'high' | 'medium' | 'low'
 );
 
-CREATE TABLE IF NOT EXISTS dim_metric (     -- 由契约编译写入，供 SQL JOIN
-    metric_id     VARCHAR PRIMARY KEY,      -- 如 'subject.sleep_debt_7d'
+-- 口径定义表：当前版（metrics/*.yml）与历史版（metrics/history/）各一行。
+-- 主键是 (metric_id, version)。只按 metric_id 连接会把多个口径版本乘到事实行上。
+-- 读取某行指标值的 grain 时必须同时匹配版本：
+--   dim_metric.metric_id = fact_metric_value.metric_id
+--   AND dim_metric.version = fact_metric_value.metric_version
+CREATE TABLE IF NOT EXISTS dim_metric (
+    metric_id     VARCHAR NOT NULL,         -- 如 'subject.sleep_debt_7d'
     display_name  VARCHAR,
     unit          VARCHAR,
     direction     VARCHAR,                  -- higher_better | lower_better | neutral
     grain         VARCHAR,
-    version       INTEGER,
+    version       INTEGER NOT NULL,
     contract_hash VARCHAR,
-    status        VARCHAR
+    status        VARCHAR,
+    PRIMARY KEY (metric_id, version)
 );
 
 -- ---------------------------------------------------------------- 事实表

@@ -41,6 +41,7 @@ __all__ = [
     "MetricContract",
     "MetricLineage",
     "load_contracts",
+    "load_definition_versions",
     "metric_contract_from_mapping",
 ]
 
@@ -386,6 +387,58 @@ def load_contracts(metrics_dir: Path | None = None) -> dict[str, MetricContract]
     _check_cross_contracts(contracts)
     _log.info("已加载 %d 个指标契约：%s", len(contracts), directory)
     return contracts
+
+
+def load_definition_versions(metrics_dir: Path | None = None) -> list[MetricContract]:
+    """当前口径加上 `metrics/history/`，供写入 `dim_metric`。
+
+    查询与物化仍走 `load_contracts()`：那个结果按 `metric_id` 唯一，不含历史版本。
+    这里返回列表，因为同一个 `metric_id` 会有多行。
+
+    `history/` 里的每一份必须是当前目录中已有指标的更早版本（`version` 严格更小）。
+    同一 `(metric_id, version)` 出现两次即拒绝。历史契约的 `upstream_metrics`
+    必须能在当前目录里找到，但不把历史版本自己放进查询用的契约表。
+    """
+    directory = Path(metrics_dir) if metrics_dir is not None else config.METRICS_DIR
+    current = load_contracts(directory)
+    versions: list[MetricContract] = list(current.values())
+    seen = {(contract.metric_id, contract.version) for contract in versions}
+    history_dir = directory / "history"
+    if not history_dir.is_dir():
+        return versions
+    paths = sorted({*history_dir.glob("*.yml"), *history_dir.glob("*.yaml")})
+    for path in paths:
+        raw = _read_yaml(path)
+        if "metric_id" not in raw:
+            raise config.ContractError(f"契约文件 history/{path.name} 缺少必填字段 metric_id")
+        contract = metric_contract_from_mapping(raw, source_file=f"history/{path.name}")
+        key = (contract.metric_id, contract.version)
+        if key in seen:
+            raise config.ContractError(
+                f"口径版本重复：'{contract.metric_id}' version={contract.version} "
+                f"已存在，又出现在 history/{path.name}"
+            )
+        current_contract = current.get(contract.metric_id)
+        if current_contract is None:
+            raise config.ContractError(
+                f"history/{path.name} 的 metric_id '{contract.metric_id}' 不在当前指标目录中"
+            )
+        if contract.version >= current_contract.version:
+            raise config.ContractError(
+                f"history/{path.name} 的 version={contract.version} 必须小于当前版本 "
+                f"{current_contract.version}"
+            )
+        missing = [
+            metric_id for metric_id in contract.lineage.upstream_metrics if metric_id not in current
+        ]
+        if missing:
+            raise config.ContractError(
+                f"history/{path.name} 的 upstream_metrics 引用了当前目录中不存在的指标 {missing}"
+            )
+        versions.append(contract)
+        seen.add(key)
+    _log.info("口径版本 %d 个（含 history %d 个）：%s", len(versions), len(paths), directory)
+    return versions
 
 
 def _check_cross_contracts(contracts: Mapping[str, MetricContract]) -> None:
