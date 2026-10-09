@@ -5,7 +5,7 @@
 * 用户/AI 只能提交**结构化查询对象**（第 3 节：metrics / dimensions / filters /
   grain / order_by / limit），CLI 没有任何可以传原生语句的参数；
 * 本层从不拼装业务 SQL：一律经 `interfaces/gateway.py` 调用 `veriself.semantic`
-  的冻结 API（第 7 节）；唯一例外是 `veriself audit` 只读审计表 `fact_audit_log`
+  的冻结 API（第 7 节）；唯一例外是 `veriself audit` 只读审计表 `ops.audit_log`
   （第 6 节允许，实现在 `interfaces/auditlog.py`）；
 * **所有失败路径都以非 0 退出码结束并把 `reason` 打到 stderr**，LLM 客户端据此判断
   "被拒绝了"，而不是靠自然语言猜。
@@ -572,7 +572,7 @@ def query_cmd(
 # --------------------------------------------------------------------------- audit
 
 
-@app.command("audit", help="展示最近的查询审计（只读审计表 fact_audit_log）。")
+@app.command("audit", help="展示最近的查询审计（只读审计表 ops.audit_log）。")
 def audit_cmd(
     limit: Annotated[int, typer.Option("--limit", "-n", help="最多展示多少条")] = 20,
     db_path: Annotated[Path, typer.Option("--db-path", help="DuckDB 路径")] = config.WAREHOUSE_PATH,

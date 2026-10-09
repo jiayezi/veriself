@@ -13,7 +13,7 @@
 ===============  ====================================================
 `gateway`        与下游模块（semantic/warehouse/synth/materializer）的
                  唯一适配层：函数内延迟导入 + 签名容错 + 失败降级
-`auditlog`       只读审计表 `fact_audit_log`（契约允许的唯一例外）
+`auditlog`       只读审计表 `ops.audit_log`（契约允许的唯一例外）
 `render`         rich 渲染（表格 / 面板 / 拒绝对比）
 `cli`            Typer 入口 `veriself.interfaces.cli:app`
 `mcp_server`     stdio MCP server，4 个工具

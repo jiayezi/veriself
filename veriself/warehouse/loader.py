@@ -9,7 +9,7 @@
 - :func:`materialize_metric` —— 双时间轴写入 `fact_metric_value`：先关闭该
   `(metric_id, subject_id, date_key)` 的旧行 `valid_to`，再插入
   `valid_from=computed_at, valid_to=NULL` 的新行；这是 as-of 溯源的基础。
-- :func:`write_audit`        —— 追加写 `fact_audit_log`。
+- :func:`write_audit`        —— 追加写 `ops.audit_log`。
 
 `contract` 参数同时接受「YAML 解析出的 ``Mapping``」与「Pydantic 模型」两种表示。
 """
@@ -59,7 +59,7 @@ _FACT_METRIC_VALUE_COLUMNS: tuple[str, ...] = (
     "valid_to",
 )
 
-# fact_audit_log 的写入列顺序
+# ops.audit_log 的写入列顺序
 _AUDIT_COLUMNS: tuple[str, ...] = (
     "audit_id",
     "queried_at",
@@ -334,7 +334,7 @@ def materialize_metric(
 
 # ------------------------------------------------------------------ 审计日志
 def write_audit(conn: Any, record: Mapping[str, Any]) -> None:
-    """向 `fact_audit_log` 追加一条审计记录（`audit_id` 自增，单语句原子分配）。
+    """向 `ops.audit_log` 追加一条审计记录（`audit_id` 自增，单语句原子分配）。
 
     `record` 的键对应契约第 1 节的列；`metric_versions` / `contract_hashes` /
     `rls_applied` / `checks_passed` 允许传 dict / list（自动 JSON 编码）。
@@ -365,13 +365,13 @@ def write_audit(conn: Any, record: Mapping[str, Any]) -> None:
     placeholders = ", ".join("?" * len(values))
     if audit_id is None:  # 单条 INSERT ... SELECT，避免"先查 max 再插入"的竞态
         conn.execute(
-            f"INSERT INTO fact_audit_log ({', '.join(_AUDIT_COLUMNS)}) "
-            f"SELECT coalesce(max(audit_id), 0) + 1, {placeholders} FROM fact_audit_log",
+            f"INSERT INTO ops.audit_log ({', '.join(_AUDIT_COLUMNS)}) "
+            f"SELECT coalesce(max(audit_id), 0) + 1, {placeholders} FROM ops.audit_log",
             list(values),
         )
     else:
         conn.execute(
-            f"INSERT INTO fact_audit_log ({', '.join(_AUDIT_COLUMNS)}) "
+            f"INSERT INTO ops.audit_log ({', '.join(_AUDIT_COLUMNS)}) "
             f"VALUES (?, {placeholders})",
             [int(audit_id), *values],
         )

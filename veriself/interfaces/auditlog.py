@@ -1,4 +1,4 @@
-"""只读审计表 `fact_audit_log` 的访问器 —— `interfaces` 层**唯一**允许直读数据表的地方。
+"""只读审计表 `ops.audit_log` 的访问器 —— `interfaces` 层**唯一**允许直读数据表的地方。
 
 为什么允许：契约第 6 节把 `veriself audit` 的读取需求留给本层；审计表不是业务表，
 它记录的是"谁在什么时候提交了什么查询、被哪条规则拒绝了"，不经过编译链也必须可读。
@@ -20,8 +20,8 @@ from veriself import config
 
 __all__ = ["AUDIT_TABLE", "AuditLogUnavailable", "fetch_one", "fetch_recent"]
 
-#: 审计表名（契约第 1.2 节）。
-AUDIT_TABLE = "fact_audit_log"
+#: 审计表（契约第 1.3 节）。限定名，避免读到 main 里的同名表。
+AUDIT_TABLE = "ops.audit_log"
 
 #: 排序键，保证"最近查询"在最前面。
 _ORDER_KEY = "audit_id"

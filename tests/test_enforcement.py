@@ -70,7 +70,7 @@ CREATE TABLE dim_date (
     week INTEGER, day_of_week INTEGER, weekday_name VARCHAR, is_weekend BOOLEAN, is_holiday BOOLEAN
 );
 CREATE TABLE dim_subject (
-    subject_sk BIGINT, subject_id VARCHAR, name VARCHAR, birth_date DATE, sleep_need_h DOUBLE,
+    subject_id VARCHAR, name VARCHAR, birth_date DATE, sleep_need_h DOUBLE,
     base_weight_kg DOUBLE, timezone VARCHAR, valid_from TIMESTAMP, valid_to TIMESTAMP,
     is_current BOOLEAN, version INTEGER, recorded_at TIMESTAMP
 );
@@ -79,7 +79,8 @@ CREATE TABLE fact_metric_value (
     contract_hash VARCHAR, computed_at TIMESTAMP, valid_from TIMESTAMP, valid_to TIMESTAMP,
     PRIMARY KEY (metric_id, subject_id, date_key, valid_from)
 );
-CREATE TABLE fact_audit_log (
+CREATE SCHEMA ops;
+CREATE TABLE ops.audit_log (
     audit_id BIGINT PRIMARY KEY, queried_at TIMESTAMP NOT NULL, actor_role VARCHAR NOT NULL,
     request_json VARCHAR NOT NULL, compiled_sql VARCHAR, metric_versions VARCHAR,
     contract_hashes VARCHAR, rls_applied VARCHAR, checks_passed VARCHAR, outcome VARCHAR NOT NULL
@@ -134,12 +135,12 @@ def _make_conn(with_context_key: bool = True) -> duckdb.DuckDBPyConnection:
     # dim_subject：SCD2，S001 有两条历史（只有 is_current=TRUE 那条该被用）
     subjects = []
     for index in range(1, 6):
-        subjects.append((index, f"S00{index}", "demo", dt.date(1990, 1, 1), 7.75, 70.0,
+        subjects.append((f"S00{index}", "demo", dt.date(1990, 1, 1), 7.75, 70.0,
                          "Asia/Shanghai", _naive(2026, 1, 1), None, True, 1, _naive(2026, 1, 1)))
-    subjects.append((99, "S001", "old", dt.date(1990, 1, 1), 99.0, 70.0,
+    subjects.append(("S001", "old", dt.date(1990, 1, 1), 99.0, 70.0,
                      "Asia/Shanghai", _naive(2020, 1, 1), _naive(2025, 12, 31), False, 1,
                      _naive(2020, 1, 1)))
-    conn.executemany("INSERT INTO dim_subject VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", subjects)
+    conn.executemany("INSERT INTO dim_subject VALUES (?,?,?,?,?,?,?,?,?,?,?)", subjects)
 
     # 1) 日粒度 mean（owner_only）；S002 有巨值，用于验证 owner 行级过滤
     for offset, value in enumerate([6.0, 7.0, 8.0, 6.0, 7.0]):
@@ -723,7 +724,7 @@ def test_compile_builds_sql_once_and_reuses_ast(contracts, monkeypatch):
             "SELECT a FROM fact_metric_value AS f JOIN fact_subject_day AS sd ON f.date_key = sd.date_key",
             "缺少已声明键",
         ),
-        ("SELECT a FROM fact_metric_value JOIN dim_subject ON dim_date.date_key = dim_subject.subject_sk",
+        ("SELECT a FROM fact_metric_value JOIN dim_subject ON dim_date.date_key = dim_subject.timezone",
          "JOIN"),
     ],
 )
@@ -1102,7 +1103,7 @@ def _install_fake_loader(monkeypatch, store):
     def write_audit(conn, record):
         store.append(record)
         conn.execute(
-            "INSERT INTO fact_audit_log VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO ops.audit_log VALUES (?,?,?,?,?,?,?,?,?,?)",
             [
                 len(store), record["queried_at"], record["actor_role"], record["request_json"],
                 record["compiled_sql"], record["metric_versions"], record["contract_hashes"],
@@ -1114,14 +1115,14 @@ def _install_fake_loader(monkeypatch, store):
     monkeypatch.setitem(sys.modules, "veriself.warehouse.loader", module)
 
 
-def test_audit_row_written_to_fact_audit_log(contracts, conn, monkeypatch):
+def test_audit_row_written_to_ops_audit_log(contracts, conn, monkeypatch):
     store = []
     _install_fake_loader(monkeypatch, store)
     compiled = _compile({"metrics": ["subject.sleep_daily"]}, contracts)
     execute_query(compiled, role=config.Role.OWNER, conn=conn, audit=True)
     assert len(store) == 1
     row = conn.execute(
-        "SELECT actor_role, outcome, metric_versions, rls_applied, checks_passed FROM fact_audit_log"
+        "SELECT actor_role, outcome, metric_versions, rls_applied, checks_passed FROM ops.audit_log"
     ).fetchall()
     assert row == [("owner", "ok", '{"subject.sleep_daily": 1}', '["owner_only"]',
                     json.dumps(list(config.ENFORCED_CHECKS)))]
@@ -1133,7 +1134,7 @@ def test_audit_false_does_not_write(contracts, conn, monkeypatch):
     _install_fake_loader(monkeypatch, store)
     execute_query(_compile({"metrics": ["subject.sleep_daily"]}, contracts), conn=conn, audit=False)
     assert store == []
-    assert conn.execute("SELECT count(*) FROM fact_audit_log").fetchone() == (0,)
+    assert conn.execute("SELECT count(*) FROM ops.audit_log").fetchone() == (0,)
 
 
 def test_audit_degrades_when_loader_missing(contracts, conn, monkeypatch, caplog):

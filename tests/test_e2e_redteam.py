@@ -334,7 +334,7 @@ def test_normal_query_returns_audit_header(e2e):
 
 def test_audit_log_is_written(e2e):
     conn = e2e["conn"]
-    before = conn.execute("SELECT count(*) FROM fact_audit_log").fetchone()[0]
+    before = conn.execute("SELECT count(*) FROM ops.audit_log").fetchone()[0]
 
     from veriself.semantic import QueryRequest, compile_query, execute_query
 
@@ -342,7 +342,7 @@ def test_audit_log_is_written(e2e):
     compiled = compile_query(req, e2e["contracts"], config.Role.OWNER)
     execute_query(compiled, role=config.Role.OWNER, conn=conn, audit=True)
 
-    after = conn.execute("SELECT count(*) FROM fact_audit_log").fetchone()[0]
+    after = conn.execute("SELECT count(*) FROM ops.audit_log").fetchone()[0]
     assert after > before, "查询未写入审计日志"
 
 

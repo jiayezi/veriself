@@ -355,20 +355,21 @@ def audit_db(tmp_path: Path) -> Path:
 
     path = tmp_path / "warehouse.duckdb"
     connection = duckdb.connect(str(path))
+    connection.execute("create schema ops")
     connection.execute(
-        "create table fact_audit_log("
+        "create table ops.audit_log("
         "audit_id bigint, queried_at timestamp, actor_role varchar, request_json varchar, "
         "compiled_sql varchar, metric_versions varchar, contract_hashes varchar, "
         "rls_applied varchar, checks_passed varchar, outcome varchar)"
     )
     connection.execute(
-        "insert into fact_audit_log values "
+        "insert into ops.audit_log values "
         "(1, '2026-10-01 16:40:00', 'owner', '{\"metrics\":[\"subject.sleep_debt_7d\"]}', "
         "'compiled', '{\"subject.sleep_debt_7d\":1}', '{\"subject.sleep_debt_7d\":\"sha256:x\"}', "
         "'owner_only', 'registered', 'ok')"
     )
     connection.execute(
-        "insert into fact_audit_log values "
+        "insert into ops.audit_log values "
         "(2, '2026-10-01 16:41:00', 'owner', '{\"metrics\":[\"subject.nope\"]}', "
         "null, null, null, null, 'registered', 'rejected:unknown_metric')"
     )
@@ -703,7 +704,8 @@ def test_audit_empty_log_is_ok(tmp_path: Path) -> None:
 
     path = tmp_path / "empty.duckdb"
     connection = duckdb.connect(str(path))
-    connection.execute("create table fact_audit_log(audit_id bigint, outcome varchar)")
+    connection.execute("create schema ops")
+    connection.execute("create table ops.audit_log(audit_id bigint, outcome varchar)")
     connection.close()
     result = runner.invoke(cli.app, ["audit", "--db-path", str(path)])
     assert result.exit_code == 0, result.output
@@ -1034,7 +1036,7 @@ def test_interfaces_never_names_a_business_table() -> None:
         for table in BUSINESS_TABLES:
             assert table not in text, f"{path.name} 引用了业务表 {table}"
     audit_text = (INTERFACES_DIR / "auditlog.py").read_text(encoding="utf-8")
-    assert "fact_audit_log" in audit_text  # 唯一例外必须明写审计表名
+    assert "ops.audit_log" in audit_text  # 唯一例外必须明写审计表名
 
 
 def test_only_gateway_and_auditlog_import_duckdb() -> None:

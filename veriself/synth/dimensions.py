@@ -158,7 +158,6 @@ def build_dim_subject(plan_start: pd.Timestamp) -> pd.DataFrame:
     recorded_v2 = pd.Timestamp(plan_start) + pd.Timedelta(days=1)
     frame = pd.DataFrame(
         {
-            "subject_sk": np.array([1, 2], dtype="int64"),
             "subject_id": pd.Series([config.SUBJECT_ID] * 2, dtype="str"),
             "name": pd.Series([config.SUBJECT_NAME] * 2, dtype="str"),
             "birth_date": [BIRTH_DATE, BIRTH_DATE],

@@ -42,7 +42,7 @@ INTERMEDIATE_TABLES: tuple[str, ...] = ("latent_daily", "obs_daily", "obs_intrad
 #: 各表的确定性排序键（保证 Parquet 逐字节可复现、DuckDB 行序稳定）
 ORDER_KEYS: dict[str, tuple[str, ...]] = {
     "dim_date": ("date_key",),
-    "dim_subject": ("subject_sk",),
+    "dim_subject": ("subject_id", "valid_from"),
     "dim_source": ("source_id",),
     "fact_subject_day": ("subject_id", "date_key"),
     "fact_observation": ("observed_at", "channel"),
@@ -265,7 +265,7 @@ def load_into_duckdb(
         #     session1: CREATE TABLE + CREATE UNIQUE INDEX + INSERT → close
         #     session2: BEGIN; DELETE; INSERT; COMMIT  → Duplicate key（失败）
         #     session3: DELETE; INSERT（均自动提交）    → 成功
-        # `dim_subject`（`ux_dim_subject_version`）与 `fact_observation`
+        # `dim_subject` 的主键与 `fact_observation`
         # （`ux_fact_observation_id` / `_natural_key`）都有唯一索引，所以那种写法会让
         # **第二次跑 `veriself synth` 直接失败**（见 AGENTS.md「易错点」）。
         # 代价：失去跨表原子性——每张表各自 DELETE→INSERT 自动提交。这是有意取舍：

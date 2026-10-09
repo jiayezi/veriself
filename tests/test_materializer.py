@@ -28,7 +28,7 @@ CREATE TABLE dim_date (
     week INTEGER, day_of_week INTEGER, weekday_name VARCHAR, is_weekend BOOLEAN, is_holiday BOOLEAN
 );
 CREATE TABLE dim_subject (
-    subject_sk BIGINT, subject_id VARCHAR, name VARCHAR, birth_date DATE, sleep_need_h DOUBLE,
+    subject_id VARCHAR, name VARCHAR, birth_date DATE, sleep_need_h DOUBLE,
     base_weight_kg DOUBLE, timezone VARCHAR, valid_from TIMESTAMP, valid_to TIMESTAMP,
     is_current BOOLEAN, version INTEGER, recorded_at TIMESTAMP
 );
@@ -91,7 +91,7 @@ def conn():
     c = duckdb.connect(":memory:")
     c.execute(DDL)
     c.execute(
-        "INSERT INTO dim_subject VALUES (1, ?, 'demo', DATE '1990-01-01', ?, 70.0, 'Asia/Shanghai',"
+        "INSERT INTO dim_subject VALUES (?, 'demo', DATE '1990-01-01', ?, 70.0, 'Asia/Shanghai',"
         " TIMESTAMP '2020-01-01 00:00:00', NULL, TRUE, 1, TIMESTAMP '2020-01-01 00:00:00')",
         [SUBJECT, SLEEP_NEED],
     )
@@ -687,10 +687,10 @@ def test_sleep_need_uses_version_valid_on_that_day(conn):
     conn.execute("DELETE FROM dim_subject")
     conn.execute(
         "INSERT INTO dim_subject VALUES "
-        "(1, ?, 'demo', DATE '1990-01-01', 8.25, 78.5, 'Asia/Shanghai',"
+        "(?, 'demo', DATE '1990-01-01', 8.25, 78.5, 'Asia/Shanghai',"
         " TIMESTAMP '2020-01-01 00:00:00', TIMESTAMP '2026-01-07 00:00:00', FALSE, 1,"
         " TIMESTAMP '2020-01-01 00:00:00'),"
-        "(2, ?, 'demo', DATE '1990-01-01', ?, 72.0, 'Asia/Shanghai',"
+        "(?, 'demo', DATE '1990-01-01', ?, 72.0, 'Asia/Shanghai',"
         " TIMESTAMP '2026-01-07 00:00:00', NULL, TRUE, 2,"
         " TIMESTAMP '2026-01-08 00:00:00')",
         [SUBJECT, SUBJECT, SLEEP_NEED],

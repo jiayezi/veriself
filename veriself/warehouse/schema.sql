@@ -1,7 +1,8 @@
 -- veriself 星型模型 DDL —— IFACE-v1 契约第 1 节（冻结）
 --
 -- **唯一 DDL 来源**：其他任何模块禁止内联 DDL（契约第 7 节铁律 3）。
--- 9 张表全部幂等建表（IF NOT EXISTS），`loader.ensure_schema` 可重复调用。
+-- 8 张分析表在 main，操作日志在 ops.audit_log。全部幂等建表（IF NOT EXISTS），
+-- `loader.ensure_schema` 可重复调用。
 -- 列名/类型/主键与 `docs/00-接口契约.md` 第 1 节逐字一致，不得增删列。
 
 -- ---------------------------------------------------------------- 维度表
@@ -19,8 +20,7 @@ CREATE TABLE IF NOT EXISTS dim_date (
 );
 
 CREATE TABLE IF NOT EXISTS dim_subject (    -- SCD2
-    subject_sk      BIGINT PRIMARY KEY,     -- 代理键
-    subject_id      VARCHAR NOT NULL,       -- 业务键，如 'S001'
+    subject_id      VARCHAR NOT NULL,       -- 实体键，分配后不修改，如 'S001'
     name            VARCHAR,
     birth_date      DATE,
     sleep_need_h    DOUBLE,                 -- 个体睡眠需求（小时）
@@ -32,16 +32,15 @@ CREATE TABLE IF NOT EXISTS dim_subject (    -- SCD2
     version         INTEGER NOT NULL,
     recorded_at     TIMESTAMP NOT NULL,     -- 记录时间（双时间轴另一半）
     -- 区间必须非空且正向：`valid_to <= valid_from` 的行是"负长度区间"，SCD2 无意义
-    CONSTRAINT chk_subject_valid_range CHECK (valid_to IS NULL OR valid_to > valid_from)
+    CONSTRAINT chk_subject_valid_range CHECK (valid_to IS NULL OR valid_to > valid_from),
+    -- 同一主体的一个版本只能有一个起点。
+    -- 两个版本共享 `valid_from` 时"哪一个权威"无解，按业务日连接会同时命中两行。
+    PRIMARY KEY (subject_id, valid_from)
 );
 
--- SCD2 最根本的约束：同一主体的一个版本只能有一个起点。
--- 两个版本共享 `valid_from` 时"哪一个权威"无解，as-of 查询会同时命中两行。
 -- 注：DuckDB **不支持部分索引**（`... WHERE is_current` 会抛 NotImplementedException），
 -- 因此"每主体至多一行 is_current = true"无法用索引表达，只能由应用层维护 +
 -- 数据质量测试守住。
-CREATE UNIQUE INDEX IF NOT EXISTS ux_dim_subject_version
-    ON dim_subject (subject_id, valid_from);
 
 CREATE TABLE IF NOT EXISTS dim_source (
     source_id        VARCHAR PRIMARY KEY,   -- 'wearable' | 'phone' | 'bank' | 'llm_client'
@@ -141,7 +140,10 @@ CREATE TABLE IF NOT EXISTS fact_metric_value (  -- 粒度：metric × subject ×
     PRIMARY KEY (metric_id, subject_id, date_key, valid_from)
 );
 
-CREATE TABLE IF NOT EXISTS fact_audit_log (
+-- ---------------------------------------------------------------- 操作日志（不是分析事实）
+CREATE SCHEMA IF NOT EXISTS ops;
+
+CREATE TABLE IF NOT EXISTS ops.audit_log (
     audit_id        BIGINT PRIMARY KEY,
     queried_at      TIMESTAMP NOT NULL,
     actor_role      VARCHAR NOT NULL,           -- owner | partner | researcher

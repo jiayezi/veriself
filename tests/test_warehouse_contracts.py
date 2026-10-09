@@ -176,7 +176,6 @@ EXPECTED_SCHEMA: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("is_holiday", "BOOLEAN", "YES"),
     ),
     "dim_subject": (
-        ("subject_sk", "BIGINT", "NO"),
         ("subject_id", "VARCHAR", "NO"),
         ("name", "VARCHAR", "YES"),
         ("birth_date", "DATE", "YES"),
@@ -244,7 +243,7 @@ EXPECTED_SCHEMA: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("valid_from", "TIMESTAMP", "NO"),
         ("valid_to", "TIMESTAMP", "YES"),
     ),
-    "fact_audit_log": (
+    "ops.audit_log": (
         ("audit_id", "BIGINT", "NO"),
         ("queried_at", "TIMESTAMP", "NO"),
         ("actor_role", "VARCHAR", "NO"),
@@ -260,7 +259,7 @@ EXPECTED_SCHEMA: dict[str, tuple[tuple[str, str, str], ...]] = {
 
 EXPECTED_PRIMARY_KEYS: dict[str, set[str]] = {
     "dim_date": {"date_key"},
-    "dim_subject": {"subject_sk"},
+    "dim_subject": {"subject_id", "valid_from"},
     "dim_source": {"source_id"},
     "fact_subject_day": {"subject_id", "date_key"},
     "dim_metric": {"metric_id", "version"},
@@ -269,7 +268,7 @@ EXPECTED_PRIMARY_KEYS: dict[str, set[str]] = {
     # 事件刻意不加自然键：同一分钟的多笔消费是合法数据，事件真身份须由上游提供
     "fact_event": {"event_id"},
     "fact_metric_value": {"metric_id", "subject_id", "date_key", "valid_from"},
-    "fact_audit_log": {"audit_id"},
+    "ops.audit_log": {"audit_id"},
 }
 
 
@@ -572,10 +571,12 @@ def test_schema_sql_is_the_only_ddl_source() -> None:
 def test_ensure_schema_is_idempotent_and_matches_contract(conn) -> None:
     ensure_schema(conn)
     ensure_schema(conn)
-    tables = {
-        row[0] for row in conn.execute("SELECT table_name FROM duckdb_tables()").fetchall()
+    rows = conn.execute("SELECT schema_name, table_name FROM duckdb_tables()").fetchall()
+    present = {
+        table if schema == "main" else f"{schema}.{table}" for schema, table in rows
     }
-    assert set(EXPECTED_SCHEMA) <= tables
+    assert set(EXPECTED_SCHEMA) <= present
+    assert "fact_audit_log" not in {table for schema, table in rows if schema == "main"}
 
     for table, expected in EXPECTED_SCHEMA.items():
         actual = [(name, dtype, nullable) for name, dtype, nullable, _key in describe(conn, table)]
@@ -936,7 +937,7 @@ def test_write_audit_appends_with_incrementing_id(conn) -> None:
 
     rows = conn.execute(
         "SELECT audit_id, queried_at, actor_role, request_json, rls_applied, checks_passed, outcome"
-        " FROM fact_audit_log ORDER BY audit_id"
+        " FROM ops.audit_log ORDER BY audit_id"
     ).fetchall()
     assert [row[0] for row in rows] == [1, 2]
     assert rows[0][1] == queried_at
@@ -950,7 +951,7 @@ def test_write_audit_appends_with_incrementing_id(conn) -> None:
         write_audit(conn, {"actor_role": "owner"})
     with pytest.raises(ValueError):
         write_audit(conn, {"outcome": "ok"})
-    assert conn.execute("SELECT count(*) FROM fact_audit_log").fetchone()[0] == 2
+    assert conn.execute("SELECT count(*) FROM ops.audit_log").fetchone()[0] == 2
 
 
 # ================================================================ 5. 与物化器的集成
@@ -1117,7 +1118,7 @@ def golden_warehouse(contracts: dict):
     conn = fresh_conn()
     materializer.ensure_views(conn)
     conn.execute(
-        "INSERT INTO dim_subject VALUES (1, ?, 'demo-subject', DATE '1990-01-01', ?, 70.0,"
+        "INSERT INTO dim_subject VALUES (?, 'demo-subject', DATE '1990-01-01', ?, 70.0,"
         " 'Asia/Shanghai', TIMESTAMP '2024-01-01 00:00:00', NULL, TRUE, 1,"
         " TIMESTAMP '2024-01-01 00:00:00')",
         [GOLDEN_SUBJECT, GOLDEN_SLEEP_NEED_H],

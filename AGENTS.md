@@ -32,7 +32,7 @@
 ## 铁律
 
 1. **LLM 不写 SQL**：`interfaces` 层不得拼 SQL、不得直接 `import duckdb` 查业务表。
-   唯一例外：`interfaces/auditlog.py` 只读 `fact_audit_log`，且用 DuckDB relation API（零查询关键字）。
+   唯一例外：`interfaces/auditlog.py` 只读 `ops.audit_log`，且用 DuckDB relation API（零查询关键字）。
    所有业务 SQL 只能由 `semantic.compile_query` 产出。
 2. **五条校验的组成与规范顺序**（`config.ENFORCED_CHECKS`）：
    `registered → dimensions → grain → ast_join_path → rls`。

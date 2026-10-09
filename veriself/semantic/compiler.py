@@ -12,7 +12,7 @@
 4. **RLS 改写**：owner 注入 `实体键 = ?`（列名来自领域文件，绑定值仍是进程上的主体）；
    partner/researcher 跨主体聚合，`aggregate_min5` 追加人数与行数下限。
 5. **扫描量预检**：执行前 `EXPLAIN` 取估算行数，超 `config.SCAN_LIMIT_HINT` 拒绝。
-6. **审计**：返回审计头（契约 §4），`audit=True` 时写 `fact_audit_log`
+6. **审计**：返回审计头（契约 §4），`audit=True` 时写 `ops.audit_log`
    （调用 `veriself.warehouse.loader.write_audit`；缺模块/签名不符时降级并记日志）。
 """
 
@@ -495,7 +495,7 @@ def _audit_header(compiled: CompiledQuery, role: config.Role) -> dict:
 
 
 def _audit_record(compiled: CompiledQuery, role: config.Role, outcome: str) -> dict:
-    """`fact_audit_log` 行（键与契约 §1 DDL 对齐；`audit_id` 由 loader 生成）。"""
+    """`ops.audit_log` 行（键与契约 §1 DDL 对齐；`audit_id` 由 loader 生成）。"""
     return {
         "queried_at": _now().replace(tzinfo=None),
         "actor_role": role.value,
@@ -512,7 +512,7 @@ def _audit_record(compiled: CompiledQuery, role: config.Role, outcome: str) -> d
 def _write_audit(conn, record: Mapping[str, Any]) -> bool:
     """调用 `warehouse.loader.write_audit` 写审计日志；不可用时降级并记 warning。
 
-    期望签名：`write_audit(conn, record: dict) -> None`（record 的键 = fact_audit_log 列，不含 audit_id）。
+    期望签名：`write_audit(conn, record: dict) -> None`（record 的键 = ops.audit_log 列，不含 audit_id）。
     为解耦，本函数对若干合理调用形态都做兼容尝试，全部失败只降级、不抛异常。
     """
     try:

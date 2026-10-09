@@ -90,7 +90,7 @@ CONTRACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "day_of_week", "weekday_name", "is_weekend", "is_holiday",
     ),
     "dim_subject": (
-        "subject_sk", "subject_id", "name", "birth_date", "sleep_need_h",
+        "subject_id", "name", "birth_date", "sleep_need_h",
         "base_weight_kg", "timezone", "valid_from", "valid_to", "is_current",
         "version", "recorded_at",
     ),
@@ -505,7 +505,7 @@ def test_rerun_on_existing_warehouse_is_idempotent(scratch_dir: Path) -> None:
     为什么需要这条：`synth` 的装载是「DELETE 全部行 → INSERT 新行」。
     曾经这一步包在一个显式事务里，而 DuckDB 在**持久化库**上，同一事务内 `DELETE`
     不会让**上一会话建好的唯一索引**条目失效——紧接着 `INSERT` 同一个键就撞"已删除的键"。
-    `dim_subject`（`ux_dim_subject_version`）与 `fact_observation`
+    `dim_subject` 的主键与 `fact_observation`
     （`ux_fact_observation_id` / `_natural_key`）都有唯一索引，
     所以那种写法让 `veriself synth` **第二次运行直接失败**。
 

@@ -398,7 +398,7 @@ def print_query_result(payload: Mapping[str, Any], *, role: config.Role | None =
 def print_audit_log(
     rows: Sequence[Mapping[str, Any]], *, db_path: Any = None, limit: int = 20
 ) -> None:
-    """打印最近的查询审计（`fact_audit_log`）。"""
+    """打印最近的查询审计（`ops.audit_log`）。"""
     if not rows:
         out().print(Panel(
             Text(f"审计日志为空（{db_path}）：还没有成功或失败的查询记录。", style="yellow"),
