@@ -92,7 +92,7 @@ def conn():
     c.execute(DDL)
     c.execute(
         "INSERT INTO dim_subject VALUES (1, ?, 'demo', DATE '1990-01-01', ?, 70.0, 'Asia/Shanghai',"
-        " now(), NULL, TRUE, 1, now())",
+        " TIMESTAMP '2020-01-01 00:00:00', NULL, TRUE, 1, TIMESTAMP '2020-01-01 00:00:00')",
         [SUBJECT, SLEEP_NEED],
     )
     c.execute("INSERT INTO dim_source VALUES ('wearable', 'Wearable', 'high')")
@@ -192,7 +192,7 @@ def test_materialized_view_names_are_not_contract_vocabulary():
     assert _touches("fact_observation.steps", "fact_observation") is True
     assert _touches("o.steps", "fact_observation") is True
     assert _touches("obs_daily.steps", "fact_observation") is False
-    assert _touches("subject_current.sleep_need_h", "dim_subject") is False
+    assert _touches("subject_asof.sleep_need_h", "dim_subject") is False
     assert _touches("evt_daily.spending", "fact_event") is False
 
 
@@ -682,6 +682,53 @@ def test_formula_using_physical_table_name_binds(conn):
     assert got == [(pytest.approx(6.0 - SLEEP_NEED),)]
 
 
+def test_sleep_need_uses_version_valid_on_that_day(conn):
+    """历史日用当天有效的睡眠需求，边界日属于新版本；重算不产生历史行。"""
+    conn.execute("DELETE FROM dim_subject")
+    conn.execute(
+        "INSERT INTO dim_subject VALUES "
+        "(1, ?, 'demo', DATE '1990-01-01', 8.25, 78.5, 'Asia/Shanghai',"
+        " TIMESTAMP '2020-01-01 00:00:00', TIMESTAMP '2026-01-07 00:00:00', FALSE, 1,"
+        " TIMESTAMP '2020-01-01 00:00:00'),"
+        "(2, ?, 'demo', DATE '1990-01-01', ?, 72.0, 'Asia/Shanghai',"
+        " TIMESTAMP '2026-01-07 00:00:00', NULL, TRUE, 2,"
+        " TIMESTAMP '2026-01-08 00:00:00')",
+        [SUBJECT, SUBJECT, SLEEP_NEED],
+    )
+    contracts = {
+        "subject.need": _contract(
+            metric_id="subject.need",
+            formula_sql="fact_observation.sleep_hours - dim_subject.sleep_need_h",
+            lineage={
+                "sources": ["fact_observation.sleep_hours", "dim_subject.sleep_need_h"],
+                "upstream_metrics": [],
+            },
+        )
+    }
+    first = materialize_all(conn, contracts)["subject.need"]
+    assert first["inserted"] == DAYS
+    rows = conn.execute(
+        "SELECT date_key, value FROM fact_metric_value"
+        " WHERE metric_id = 'subject.need' AND valid_to IS NULL ORDER BY date_key"
+    ).fetchall()
+    early = [value for key, value in rows if key < 20260107]
+    late = [value for key, value in rows if key >= 20260107]
+    assert 20260106 in {key for key, _ in rows}
+    assert 20260107 in {key for key, _ in rows}
+    assert early and late
+    assert all(value == pytest.approx(6.0 - 8.25) for value in early)
+    assert all(value == pytest.approx(6.0 - SLEEP_NEED) for value in late)
+
+    second = materialize_all(conn, contracts)["subject.need"]
+    assert second["inserted"] == 0
+    assert second["closed_changed"] == 0
+    assert second["unchanged"] == DAYS
+    total = conn.execute(
+        "SELECT count(*) FROM fact_metric_value WHERE metric_id = 'subject.need'"
+    ).fetchone()[0]
+    assert total == DAYS, "无变化重算不得产生历史行"
+
+
 def test_window_order_by_bare_date_key_binds(conn):
     """窗口里写裸 `date_key`（契约推荐写法）必须无歧义。
 
@@ -753,10 +800,15 @@ def test_contract_hash_authority_is_stable():
 
 
 def test_ensure_views_is_idempotent(conn):
+    conn.execute("CREATE VIEW subject_current AS SELECT 1 AS leftover")
     ensure_views(conn)
     ensure_views(conn)
-    for view in ("obs_daily", "evt_daily", "subject_current"):
+    for view in ("obs_daily", "evt_daily", "subject_asof"):
         got = conn.execute(
             "SELECT count(*) FROM duckdb_views() WHERE view_name = ?", [view]
         ).fetchone()[0]
         assert got == 1
+    retired = conn.execute(
+        "SELECT count(*) FROM duckdb_views() WHERE view_name = 'subject_current'"
+    ).fetchone()[0]
+    assert retired == 0

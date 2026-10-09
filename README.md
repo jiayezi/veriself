@@ -5,7 +5,7 @@ LLM 不能写 SQL，只能组合已注册的指标——每个数字都带口径
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/jiayezi/veriself/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://github.com/jiayezi/veriself/blob/main/pyproject.toml)
-[![tests](https://img.shields.io/badge/tests-380%20passed-brightgreen.svg)](#现状)
+[![tests](https://img.shields.io/badge/tests-382%20passed-brightgreen.svg)](#现状)
 
 ---
 
@@ -309,8 +309,8 @@ MCP（stdio）可用于任何 MCP 客户端：
 
 | 项 | 结果 |
 | --- | --- |
-| 测试 | `uv run python -m pytest tests` → **380 passed** |
-| 端到端红队验收 | `uv run python -m pytest tests/test_e2e_redteam.py` → **22 passed**（真实链路，非 mock） |
+| 测试 | `uv run python -m pytest tests` → **382 passed** |
+| 端到端红队验收 | `uv run python -m pytest tests/test_e2e_redteam.py` → **23 passed**（真实链路，非 mock） |
 | 合成数据 | 1,004 天 · `fact_observation` 106,424 行 · `fact_event` 5,882 行 |
 | 指标物化 | 18 个指标 · 14,408 行 · **重算幂等**（无变化时零写入，不累积历史） |
 | 植入效应可检出 | 睡眠 ≤6h 的次日专注度 44.14 vs ≥7.5h 的 50.06（Welch t=−5.29, p=2.3e−06） |

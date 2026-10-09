@@ -1,4 +1,5 @@
-# 主体维度语义模型：dim_subject 的 SCD2 当前版本（is_current = TRUE）→ subject_current 视图。
+# 主体维度语义模型：dim_subject 的全部 SCD2 版本 → subject_asof 视图。
+# 物化按业务日落入 [valid_from, valid_to) 取这些列，不在视图里滤 is_current。
 # 列只有 name（无 channel/agg/expr）：它们是维度列，不参与日聚合。
 # 注意：subject_id 是实体键（entity），不在这里重复声明。
 model_id: subject

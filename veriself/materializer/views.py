@@ -1,4 +1,4 @@
-"""语义模型 → 物化视图（`obs_daily` / `evt_daily` / `subject_current`）。
+"""语义模型 → 物化视图（`obs_daily` / `evt_daily` / `subject_asof`）。
 
 逻辑列（通道 → 日粒度列、事件逻辑列、维度列）与"表名 → 查询别名"的映射全部来自
 `semantic_models/*.yml`（`veriself.semantic_model`）——加一张来源表或一个
@@ -44,8 +44,10 @@ def _channel_agg_sql(column: Any) -> str:
 
 
 def ensure_views(conn: Any, models: Mapping[str, Any] | None = None) -> None:
-    """幂等建立物化所需的三个视图（`obs_daily` / `evt_daily` / `subject_current`）。
+    """幂等建立物化所需的三个视图（`obs_daily` / `evt_daily` / `subject_asof`）。
 
+    `subject_asof` 露出全部 SCD2 版本（含 `valid_from` / `valid_to`）。
+    按业务日落入 `[valid_from, valid_to)` 的连接在 `sqlbuild` 里做，不在视图里滤当前行。
     视图列清单由语义模型驱动；缺少任一必需来源表 → `ContractError`（fail-closed）。
     """
     resolved = _models(models)
@@ -88,9 +90,8 @@ def ensure_views(conn: Any, models: Mapping[str, Any] | None = None) -> None:
     _exec(
         conn,
         f"""
-    CREATE OR REPLACE VIEW subject_current AS
-    SELECT subject_id, {sub_cols}
+    CREATE OR REPLACE VIEW subject_asof AS
+    SELECT subject_id, valid_from, valid_to, {sub_cols}
     FROM dim_subject
-    WHERE is_current
     """,
     )

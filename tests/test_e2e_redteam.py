@@ -209,6 +209,43 @@ def test_history_is_preserved(e2e):
     assert history_rows >= 1, "旧值必须作为历史保留，不得物理删除"
 
 
+def test_sleep_need_deviation_uses_attribute_valid_that_day(e2e):
+    """计划开始日前的缺口用第 1 版需求，开始日及之后用第 2 版。"""
+    from veriself.synth.dimensions import PRIOR_SLEEP_NEED_H
+    from veriself.synth.events import PLAN_START
+
+    conn = e2e["conn"]
+    plan_key = int(PLAN_START.strftime("%Y%m%d"))
+
+    def gap(need: float, before: bool) -> float:
+        op = "<" if before else ">="
+        row = conn.execute(
+            f"""
+            SELECT dev.value - (dur.value - ?)
+            FROM fact_metric_value dev
+            JOIN fact_metric_value dur
+              ON dur.metric_id = 'subject.sleep_duration_daily'
+             AND dur.subject_id = dev.subject_id
+             AND dur.date_key = dev.date_key
+             AND dur.valid_to IS NULL
+            WHERE dev.metric_id = 'subject.sleep_need_deviation_daily'
+              AND dev.valid_to IS NULL
+              AND dev.date_key {op} ?
+            ORDER BY dev.date_key
+            LIMIT 1
+            """,
+            [need, plan_key],
+        ).fetchone()
+        assert row is not None, f"计划边界{'前' if before else '起'}没有睡眠缺口行"
+        return float(row[0])
+
+    assert gap(PRIOR_SLEEP_NEED_H, True) == pytest.approx(0.0, abs=1e-9)
+    assert gap(config.SUBJECT_SLEEP_NEED_H, False) == pytest.approx(0.0, abs=1e-9)
+    assert gap(config.SUBJECT_SLEEP_NEED_H, True) == pytest.approx(
+        config.SUBJECT_SLEEP_NEED_H - PRIOR_SLEEP_NEED_H, abs=1e-9
+    )
+
+
 def test_sleep_debt_is_internally_consistent(e2e):
     """内部自洽：睡眠债必须等于上游偏差的 7 日滚动和（独立重算比对）。"""
     conn = e2e["conn"]

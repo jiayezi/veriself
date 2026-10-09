@@ -6,7 +6,7 @@
    同层按 metric_id 排序，保证结果确定。
 2. **统一日粒度视图**：`fact_observation` 是"通道-值"窄表（EAV），而契约的 `formula_sql`
    是按列写的表达式。逻辑列定义在 `semantic_models/*.yml`（`veriself.semantic_model`），
-   本模块据此建立 `obs_daily` / `evt_daily` / `subject_current` 三个视图把通道转成列，
+   本模块据此建立 `obs_daily` / `evt_daily` / `subject_asof` 三个视图把通道转成列，
    使契约表达式可直接求值——契约因此不必感知物理存储形态。
 3. **grain 语义**：
    - metric 的 `grain` 即 `formula_sql` 求值所在的行粒度（day 或 week/month）。

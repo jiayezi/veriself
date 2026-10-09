@@ -31,7 +31,7 @@ from scipy import stats
 
 from veriself import config
 from veriself.synth import generate_all
-from veriself.synth.dimensions import BASE_WEIGHT_KG
+from veriself.synth.dimensions import BASE_WEIGHT_KG, PRIOR_SLEEP_NEED_H
 from veriself.synth.events import PLAN_END, PLAN_START
 from veriself.synth.generator import CONTRACT_TABLES, INTERMEDIATE_TABLES, ORDER_KEYS
 from veriself.synth.observations import (
@@ -454,6 +454,10 @@ def test_planted_weight_plan_triggers_scd2_second_version(synth: SynthRun) -> No
     second = subject.loc[subject["version"] == 2].iloc[0]
     assert pd.Timestamp(second["valid_from"]) == PLAN_START, "第 2 版生效日必须等于减重计划开始日"
     assert float(second["base_weight_kg"]) < float(subject.loc[subject["version"] == 1, "base_weight_kg"].iloc[0])
+    prior_need = float(subject.loc[subject["version"] == 1, "sleep_need_h"].iloc[0])
+    assert prior_need == PRIOR_SLEEP_NEED_H
+    assert float(second["sleep_need_h"]) == config.SUBJECT_SLEEP_NEED_H
+    assert prior_need != float(second["sleep_need_h"])
     assert pd.Timestamp(second["recorded_at"]) >= pd.Timestamp(second["valid_from"])
 
     previous_end = pd.Timestamp(subject.loc[subject["version"] == 1, "valid_to"].iloc[0])

@@ -33,12 +33,16 @@ __all__ = [
 # ------------------------------------------------------------------ 求值骨架模板
 # 三个骨架片段都要求 `(date_key, subject_id)` 唯一——否则后续 JOIN 会产生笛卡尔积。
 # `obs_daily` / `evt_daily` 已按该键聚合，`fact_metric_value` 用 DISTINCT 投影，均可安全作骨架。
+# `dim_subject` 按业务日半开区间连接。同一天命中两版会让骨架行翻倍，合并时撞主键。
 _SPINE_OBS = "SELECT date_key, subject_id FROM obs_daily"
 _SPINE_EVT = "SELECT date_key, subject_id FROM evt_daily"
 _SPINE_UPSTREAM = (
     "SELECT DISTINCT date_key, subject_id FROM fact_metric_value"
     " WHERE valid_to IS NULL AND metric_id IN ({upstream_ids})"
 )
+
+# 业务日 = date_key 当天 00:00:00。与 dim_subject 的比较用这个时间戳，不用 is_current。
+_BUSINESS_TS = "CAST(strptime(CAST(d.date_key AS VARCHAR), '%Y%m%d') AS TIMESTAMP)"
 
 _SOURCE_CTES = """obs_src AS (
     SELECT o.date_key AS obs_date_key, o.subject_id AS obs_subject_id,
@@ -51,8 +55,11 @@ evt_src AS (
     FROM evt_daily e
 ),
 dim_src AS (
-    SELECT s.subject_id AS dim_subject_id, {dim_cols}
-    FROM subject_current s
+    SELECT s.subject_id AS dim_subject_id,
+           s.valid_from AS dim_valid_from,
+           s.valid_to AS dim_valid_to,
+           {dim_cols}
+    FROM subject_asof s
 )"""
 
 # 通道/事件列清单由语义模型生成（见 `views.ensure_views` / `_compute_ctes`）。
@@ -70,6 +77,8 @@ _DAILY_SRC = """daily_src AS (
         ON e.evt_date_key = d.date_key AND e.evt_subject_id = d.subject_id
     LEFT JOIN dim_src s
         ON s.dim_subject_id = d.subject_id
+       AND {business_ts} >= s.dim_valid_from
+       AND (s.dim_valid_to IS NULL OR {business_ts} < s.dim_valid_to)
     {lateral}
 ),
 daily AS (
@@ -348,6 +357,7 @@ def _compute_ctes(
             lateral=lateral,
             expr=expr,
             rollup=rollup,
+            business_ts=_BUSINESS_TS,
         ),
         8,
     )

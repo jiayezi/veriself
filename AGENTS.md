@@ -190,6 +190,9 @@ veriself/metrics/subject.sleep_debt_7d.yml                    # 一个完整契�
   公式里写裸 `date_key`（不要写 `o.date_key`；来源日期列已改名为 `obs_date_key`/`evt_date_key`）。
 - **`agg` 是"跨粒度上卷方式"**，不是同一粒度内的聚合：`sleep_debt_7d` 用 `sum`，
   `focus_score` 用 `mean`。填错会静默算出错误的数。桶内聚合用 `bucket.agg`，两者语义分离。
+- **主体属性按业务日取版本**：物化 `dim_subject.*` 时，`date_key` 当天 00:00:00 落在
+  `[valid_from, valid_to)`。改回 `WHERE is_current` 会让历史日用上后来的睡眠需求。
+  合成数据里两个版本的 `sleep_need_h` 必须不同。查询期选 `subject.*` 维度仍只连当前行。
 - **日情境在 `fact_subject_day`**：粒度是 `(subject_id, date_key)`。查询名用
   `context.is_travel` / `context.is_illness` / `context.location_type`。
   连接必须同时带这两个键。不要恢复没有主体键的 `dim_context`。

@@ -15,6 +15,7 @@ from veriself import config
 
 __all__ = [
     "CN_HOLIDAY_RANGES",
+    "PRIOR_SLEEP_NEED_H",
     "build_dim_date",
     "build_dim_source",
     "build_dim_subject",
@@ -53,6 +54,9 @@ CN_HOLIDAY_RANGES: dict[int, tuple[tuple[str, str], ...]] = {
 
 #: 主体基础属性（SCD2 第 1 版的取值）
 BASE_WEIGHT_KG: float = 78.5
+#: 减重计划开始前登记的睡眠需求。第 2 版改回 `config.SUBJECT_SLEEP_NEED_H`。
+#: 观测仍按当前需求生成；变的是登记属性，不是睡眠时长本身。
+PRIOR_SLEEP_NEED_H: float = 8.25
 #: 减重计划结束后的登记体重（触发 SCD2 第 2 版）
 PLAN_WEIGHT_KG: float = 72.0
 BIRTH_DATE: Date = Date(1990, 5, 17)
@@ -140,7 +144,8 @@ def build_dim_subject(plan_start: pd.Timestamp) -> pd.DataFrame:
     """构造 ``dim_subject``：减重计划开始时新增第 2 个版本（SCD2）。
 
     双时间轴语义：``valid_from`` / ``valid_to`` 是业务有效期，``recorded_at`` 是入账时间
-    （第 2 版比生效日晚 1 天入账）。
+    （第 2 版比生效日晚 1 天入账）。睡眠需求随版本变化：第 1 版
+    ``PRIOR_SLEEP_NEED_H``，第 2 版 ``config.SUBJECT_SLEEP_NEED_H``。
 
     Args:
         plan_start: 减重计划开始日（第 2 版的 ``valid_from``）。
@@ -158,7 +163,7 @@ def build_dim_subject(plan_start: pd.Timestamp) -> pd.DataFrame:
             "name": pd.Series([config.SUBJECT_NAME] * 2, dtype="str"),
             "birth_date": [BIRTH_DATE, BIRTH_DATE],
             "sleep_need_h": np.array(
-                [config.SUBJECT_SLEEP_NEED_H] * 2, dtype="float64"
+                [PRIOR_SLEEP_NEED_H, config.SUBJECT_SLEEP_NEED_H], dtype="float64"
             ),
             "base_weight_kg": np.array([BASE_WEIGHT_KG, PLAN_WEIGHT_KG], dtype="float64"),
             "timezone": pd.Series([TIMEZONE] * 2, dtype="str"),

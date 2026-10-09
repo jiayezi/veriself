@@ -6,11 +6,12 @@ Cube cubes.yml）。三类模型：
 - `observation`（table=fact_observation）：通道窄表 → 日粒度列，每列声明 `channel + agg`
   （当日多条观测压成一个日值的聚合方式）；
 - `event`（table=fact_event）：事件表 → 日粒度逻辑列，每列是自由 `expr`；
-- `subject`（table=dim_subject，type=dimension）：SCD2 当前版本（is_current）的维度列。
+- `subject`（table=dim_subject，type=dimension）：SCD2 各版本的维度列。
+  物化按业务日落入 `[valid_from, valid_to)` 取值，不在这里滤 `is_current`。
 
 消费方（依赖方向合法，均只 import 本模块）：
 
-- `materializer`：生成 `obs_daily` / `evt_daily` / `subject_current` 视图与求值列清单；
+- `materializer`：生成 `obs_daily` / `evt_daily` / `subject_asof` 视图与求值列清单；
 - `semantic/contract.py`：加载期做**真实列存在性校验**（typo 如
   `fact_observation.sleep_hour` 在加载期即拒绝）。
 
