@@ -1,7 +1,7 @@
 -- veriself 星型模型 DDL —— IFACE-v1 契约第 1 节（冻结）
 --
 -- **唯一 DDL 来源**：其他任何模块禁止内联 DDL（契约第 7 节铁律 3）。
--- 10 张表全部幂等建表（IF NOT EXISTS），`loader.ensure_schema` 可重复调用。
+-- 9 张表全部幂等建表（IF NOT EXISTS），`loader.ensure_schema` 可重复调用。
 -- 列名/类型/主键与 `docs/00-接口契约.md` 第 1 节逐字一致，不得增删列。
 
 -- ---------------------------------------------------------------- 维度表
@@ -47,14 +47,6 @@ CREATE TABLE IF NOT EXISTS dim_source (
     source_id        VARCHAR PRIMARY KEY,   -- 'wearable' | 'phone' | 'bank' | 'llm_client'
     display_name     VARCHAR,
     reliability_tier VARCHAR                -- 'high' | 'medium' | 'low'
-);
-
-CREATE TABLE IF NOT EXISTS dim_context (
-    context_sk    BIGINT PRIMARY KEY,
-    context_id    VARCHAR NOT NULL,
-    is_travel     BOOLEAN,
-    is_illness    BOOLEAN,
-    location_type VARCHAR                   -- 'home' | 'office' | 'other'
 );
 
 CREATE TABLE IF NOT EXISTS dim_metric (     -- 由契约编译写入，供 SQL JOIN
@@ -118,6 +110,18 @@ CREATE TABLE IF NOT EXISTS fact_event (         -- 粒度：事件
     recorded_at TIMESTAMP NOT NULL
 );
 
+-- 日情境是事实，不是维度：一行是「某主体某一天」的出差/生病/地点。
+-- 与 fact_metric_value 连接必须同时用 subject_id 和 date_key。
+-- 只按 date_key 连接会在多主体时把同一天的情境乘到每个主体上。
+CREATE TABLE IF NOT EXISTS fact_subject_day (  -- 粒度：subject × date
+    subject_id    VARCHAR NOT NULL,
+    date_key      INTEGER NOT NULL,            -- yyyymmdd
+    is_travel     BOOLEAN NOT NULL,
+    is_illness    BOOLEAN NOT NULL,
+    location_type VARCHAR NOT NULL,            -- 'home' | 'office' | 'other'
+    PRIMARY KEY (subject_id, date_key)
+);
+
 CREATE TABLE IF NOT EXISTS fact_metric_value (  -- 粒度：metric × subject × date（物化结果，双时间轴）
     metric_id      VARCHAR NOT NULL,
     subject_id     VARCHAR NOT NULL,
@@ -129,18 +133,6 @@ CREATE TABLE IF NOT EXISTS fact_metric_value (  -- 粒度：metric × subject ×
     valid_from     TIMESTAMP NOT NULL,
     valid_to       TIMESTAMP,                   -- NULL = 有效
     PRIMARY KEY (metric_id, subject_id, date_key, valid_from)
-);
-
-CREATE TABLE IF NOT EXISTS fact_memory_assertion (  -- AI 记住的结论（双时间轴 + 溯源）
-    assertion_id         BIGINT PRIMARY KEY,
-    subject_id           VARCHAR NOT NULL,
-    statement            VARCHAR NOT NULL,
-    confidence           DOUBLE NOT NULL,
-    status               VARCHAR NOT NULL,      -- active | superseded | contradicted
-    valid_from           TIMESTAMP NOT NULL,
-    valid_to             TIMESTAMP,
-    recorded_at          TIMESTAMP NOT NULL,
-    provenance_event_ids VARCHAR                -- 逗号分隔的 event_id
 );
 
 CREATE TABLE IF NOT EXISTS fact_audit_log (

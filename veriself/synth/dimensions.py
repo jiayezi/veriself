@@ -1,8 +1,7 @@
-"""维表生成：``dim_date`` / ``dim_subject``（SCD2）/ ``dim_source`` / ``dim_context``。
+"""维表生成：``dim_date`` / ``dim_subject``（SCD2）/ ``dim_source``。
 
+同文件还生成日情境事实 ``fact_subject_day``（每人每天一行）。
 列集合严格等于 ``docs/00-接口契约.md`` 第 1 节，不多不少（下游 JOIN 依赖列名）。
-``dim_context`` 只登记"出现过的上下文状态"（出差 × 生病 × 地点），因为契约里的
-``fact_observation`` / ``fact_event`` 都没有 context 外键，无法做按日关联。
 """
 
 from __future__ import annotations
@@ -16,10 +15,10 @@ from veriself import config
 
 __all__ = [
     "CN_HOLIDAY_RANGES",
-    "build_dim_context",
     "build_dim_date",
     "build_dim_source",
     "build_dim_subject",
+    "build_fact_subject_day",
     "winter_factor",
 ]
 
@@ -174,48 +173,38 @@ def build_dim_subject(plan_start: pd.Timestamp) -> pd.DataFrame:
     return frame
 
 
-def build_dim_context(latent_daily: pd.DataFrame, dim_date: pd.DataFrame) -> pd.DataFrame:
-    """构造 ``dim_context``：登记数据里真实出现过的 (出差 × 生病 × 地点) 组合。
+def build_fact_subject_day(latent_daily: pd.DataFrame, dim_date: pd.DataFrame) -> pd.DataFrame:
+    """构造 ``fact_subject_day``：每个主体每一天一行。
+
+    地点规则与原先的状态组合相同：出差为 ``other``，周末或生病为 ``home``，其余为 ``office``。
+    按 ``date_key`` 对齐，不依赖两张表的行序。
 
     Args:
-        latent_daily: 含 ``is_travel`` / ``is_illness`` 的日粒度潜在结构表。
+        latent_daily: 含 ``date_key`` / ``is_travel`` / ``is_illness`` 的日粒度潜在结构表。
         dim_date: ``dim_date``（取 ``is_weekend``）。
 
     Returns:
-        去重后的上下文维表，``context_sk`` 从 1 开始、按状态排序，结果确定。
+        列顺序与契约一致的日情境事实。行数等于 ``latent_daily``。
     """
 
-    is_travel = latent_daily["is_travel"].to_numpy(dtype=bool)
-    is_illness = latent_daily["is_illness"].to_numpy(dtype=bool)
-    is_weekend = dim_date["is_weekend"].to_numpy(dtype=bool)
-
+    weekend = dim_date.loc[:, ["date_key", "is_weekend"]].rename(
+        columns={"is_weekend": "dim_is_weekend"}
+    )
+    merged = latent_daily.merge(weekend, on="date_key", how="inner", sort=False)
+    is_travel = merged["is_travel"].to_numpy(dtype=bool)
+    is_illness = merged["is_illness"].to_numpy(dtype=bool)
+    is_weekend = merged["dim_is_weekend"].to_numpy(dtype=bool)
     location = np.where(
         is_travel,
         "other",
         np.where(is_weekend | is_illness, "home", "office"),
     )
-    states = (
-        pd.DataFrame(
-            {
-                "is_travel": is_travel,
-                "is_illness": is_illness,
-                "location_type": pd.Series(location, dtype="str"),
-            }
-        )
-        .drop_duplicates()
-        .sort_values(["is_travel", "is_illness", "location_type"], kind="stable")
-        .reset_index(drop=True)
+    return pd.DataFrame(
+        {
+            "subject_id": pd.Series([config.SUBJECT_ID] * len(merged), dtype="str"),
+            "date_key": merged["date_key"].to_numpy(),
+            "is_travel": is_travel,
+            "is_illness": is_illness,
+            "location_type": pd.Series(location, dtype="str"),
+        }
     )
-    states.insert(0, "context_sk", np.arange(1, states.shape[0] + 1, dtype="int64"))
-    context_ids = [
-        f"CTX_T{int(t)}_I{int(i)}_{loc.upper()}"
-        for t, i, loc in zip(
-            states["is_travel"].to_numpy(),
-            states["is_illness"].to_numpy(),
-            states["location_type"].to_numpy(),
-        )
-    ]
-    states.insert(1, "context_id", pd.Series(context_ids, dtype="str").to_numpy())
-    return states.loc[
-        :, ["context_sk", "context_id", "is_travel", "is_illness", "location_type"]
-    ]

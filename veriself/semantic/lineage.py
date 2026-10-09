@@ -9,12 +9,9 @@
 2. `upstream_metrics` 拓扑排序 + 环检测（契约 §2 规则 5）。
 3. JOIN 路径注册表：契约 §1 DDL 里可声明的等值连接路径，供 AST 校验使用（契约 §5 第 4 条）。
 
-已知 schema 缺口（**重要，见 docs §1 与我的交付说明**）：
-`dim_context(context_sk, context_id, is_travel, is_illness, location_type)` 在冻结 DDL 里
-**没有任何日期/主体键**，因此它无法与 `fact_metric_value` 建立可声明的连接路径。
-本模块按 `date_key` 对齐声明该路径（唯一自洽解释），并在执行期做 fail-closed 检查：
-若实际 `dim_context` 没有 `date_key` 列，`execute_query` 会抛 `ast_violation:` 而不是给出错数。
-若 `warehouse` 后续给 `dim_context` 增加 `date_key`，这里无需改动。
+`fact_subject_day` 与 `fact_metric_value` 的连接键是复合键
+`(subject_id, date_key)`。`declared_join_keys` 返回的是**必须同时出现**的列，
+不是可任选其一的列。只声明 `date_key` 会在多主体时把同一天的情境乘到每个主体上。
 """
 
 from __future__ import annotations
@@ -140,25 +137,25 @@ def topological_layers(upstream: Mapping[str, Sequence[str]]) -> list[list[str]]
 # ---------------------------------------------------------------- JOIN 路径注册表
 #: `semantic` 编译产物允许出现的表（读路径白名单）
 READ_PATH_TABLES: frozenset[str] = frozenset(
-    {"fact_metric_value", "dim_date", "dim_context", "dim_subject"}
+    {"fact_metric_value", "dim_date", "fact_subject_day", "dim_subject"}
 )
-#: 可以直接与事实表连接的维度表
-DIMENSION_TABLES: frozenset[str] = frozenset({"dim_date", "dim_context", "dim_subject"})
+#: 查询期可 JOIN 的表。`fact_subject_day` 是日事实，放在这里是因为它提供 `context.*` 列。
+DIMENSION_TABLES: frozenset[str] = frozenset({"dim_date", "fact_subject_day", "dim_subject"})
 
-#: 已声明等值连接路径 `(左表, 右表, 等值列)`（无向）。来源：契约 §1 DDL 的外键语义。
+#: 已声明等值连接路径 `(左表, 右表, 等值列)`（无向）。
+#: 同一对表出现多次时，这些列必须**同时**出现在 ON 里（复合键），不是任选其一。
 JOIN_EDGES: tuple[tuple[str, str, str], ...] = (
     ("fact_metric_value", "dim_date", "date_key"),
     ("fact_metric_value", "dim_subject", "subject_id"),
     ("fact_metric_value", "dim_metric", "metric_id"),
-    # ↓ 冻结 DDL 的 dim_context 无任何外键；按 date_key 对齐是唯一自洽解释（见模块 docstring）
-    ("fact_metric_value", "dim_context", "date_key"),
+    ("fact_metric_value", "fact_subject_day", "subject_id"),
+    ("fact_metric_value", "fact_subject_day", "date_key"),
     ("fact_observation", "dim_date", "date_key"),
     ("fact_observation", "dim_subject", "subject_id"),
     ("fact_observation", "dim_source", "source_id"),
     ("fact_event", "dim_date", "date_key"),
     ("fact_event", "dim_subject", "subject_id"),
     ("fact_event", "dim_source", "source_id"),
-    ("fact_memory_assertion", "dim_subject", "subject_id"),
 )
 
 _EDGE_INDEX: dict[tuple[str, str], tuple[str, ...]] = {}
@@ -170,7 +167,11 @@ for _left, _right, _key in JOIN_EDGES:
 
 
 def declared_join_keys(left: str, right: str) -> tuple[str, ...]:
-    """返回两张表之间已声明的等值连接列；无路径时返回空元组。"""
+    """返回两张表之间必须同时等值连接的列；无路径时返回空元组。
+
+    返回多列时是复合键（例如 `fact_subject_day` 的 `subject_id` + `date_key`），
+    调用方要检查 ON 子句把它们都写上，不能只命中其中一列。
+    """
     return _EDGE_INDEX.get((left, right), ())
 
 

@@ -482,7 +482,8 @@ def check_ast_join_path(
             raise bad(f"未声明表 '{target}'（白名单：{sorted(allowed)}）")
         target_alias = _table_alias(join.this)
         alias_to_table[target_alias] = target
-        matched = False
+        matched_keys: set[str] = set()
+        joined_pair: tuple[str, str] | None = None
         for eq in on_clause.find_all(exp.EQ):
             left, right = eq.left, eq.right
             if not isinstance(left, exp.Column) or not isinstance(right, exp.Column):
@@ -502,14 +503,22 @@ def check_ast_join_path(
             keys = lineage_mod.declared_join_keys(left_physical, right_physical)
             if not keys:
                 raise bad(f"JOIN 未走已声明路径：{left_physical} ↔ {right_physical}")
-            if not ({left.name, right.name} & set(keys)):
+            if left.name != right.name or left.name not in set(keys):
                 raise bad(
                     f"JOIN 键列未声明：{left_physical}.{left.name} ↔ {right_physical}.{right.name}"
                     f"（已声明键 {list(keys)}）"
                 )
-            matched = True
-        if not matched:
+            matched_keys.add(left.name)
+            joined_pair = (left_physical, right_physical)
+        if joined_pair is None:
             raise bad(f"JOIN '{target}' 未与已声明表建立等值连接（禁止隐式/笛卡尔连接）")
+        required = set(lineage_mod.declared_join_keys(*joined_pair))
+        missing = required - matched_keys
+        if missing:
+            raise bad(
+                f"JOIN '{target}' 缺少已声明键 {sorted(missing)}"
+                f"（{joined_pair[0]} ↔ {joined_pair[1]} 需要同时等值连接 {sorted(required)}）"
+            )
         visible.append(target_alias)
 
     return tree

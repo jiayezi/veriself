@@ -5,7 +5,7 @@ LLM 不能写 SQL，只能组合已注册的指标——每个数字都带口径
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/jiayezi/veriself/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://github.com/jiayezi/veriself/blob/main/pyproject.toml)
-[![tests](https://img.shields.io/badge/tests-379%20passed-brightgreen.svg)](#现状)
+[![tests](https://img.shields.io/badge/tests-380%20passed-brightgreen.svg)](#现状)
 
 ---
 
@@ -66,11 +66,11 @@ $ veriself demo
 ┌─ 审计头 audit（契约第 4 节） ────────────────────────────────────────────────────────────────────────────────────────┐
 │ 查询角色        owner                                                                                                │
 │ 指标版本        subject.sleep_debt_7d = 2                                                                            │
-│ 契约哈希        subject.sleep_debt_7d = sha256:9d32e8f0fa6dfed3                                                      │
+│ 契约哈希        subject.sleep_debt_7d = sha256:c046cbeddfe83d66                                                      │
 │ RLS 改写        owner_only                                                                                           │
 │ 强制校验        registered → dimensions → grain → ast_join_path → rls                                                │
 │ as-of 口径      2026-10-01                                                                                           │
-│ 查询时间        2026-10-07T17:08:30+08:00                                                                            │
+│ 查询时间        2026-10-09T10:48:06+08:00                                                                            │
 │ row_versioning  valid_to IS NULL AND metric_version = contract.version                                               │
 │ actor_role      owner                                                                                                │
 …
@@ -80,7 +80,8 @@ $ veriself demo
 │ 请求已被指标契约拒绝。                                                                                               │
 │                                                                                                                      │
 │ reason: dimension_not_allowed: 维度 'date.hour' 不在指标 'subject.sleep_debt_7d' 的 allowed_                         │
-│         dimensions ['date.weekday', 'date.day_of_week', 'date.month', 'date.quarter'] 中                             │
+│         dimensions ['date.weekday', 'date.day_of_week', 'date.month', 'date.quarter', 'conte                         │
+│         xt.is_travel', 'context.is_illness', 'context.location_type'] 中                                             │
 │ 触发的校验: dimension_not_allowed                                                                                    │
 │ 强制校验链: registered → dimensions → grain → ast_join_path → rls                                                    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -101,7 +102,7 @@ $ veriself demo
  dim_date             1,004
  dim_subject              2
  dim_source               4
- dim_context              4
+ fact_subject_day     1,004
  fact_observation   106,424
  fact_event           5,882
  latent_daily         1,004
@@ -141,7 +142,7 @@ $ veriself demo
       "subject.sleep_debt_7d": 2
     },
     "contract_hashes": {
-      "subject.sleep_debt_7d": "sha256:9d32e8f0fa6dfed3"
+      "subject.sleep_debt_7d": "sha256:c046cbeddfe83d66"
     },
     "compiled_sql": "SELECT \"d\".\"date\" AS \"date.day\", ANY_VALUE(CASE WHEN \"f\".\"metric_id\" = ? THEN \"f\".\"value\" END) AS \"subject.sleep_debt_7d\" FROM \"fact_metric_value\" AS f INNER JOIN \"dim_date\" AS d ON \"d\".\"date_key\" = \"f\".\"date_key\" WHERE \"f\".\"valid_to\" IS NULL AND (\"f\".\"metric_id\" = ? AND \"f\".\"metric_version\" = ?) AND \"f\".\"subject_id\" = ? AND \"d\".\"date\" >= CAST(? AS DATE) AND \"d\".\"date\" <= CAST(? AS DATE) GROUP BY 1 ORDER BY \"date.day\" ASC LIMIT ?",
     "rls_applied": [
@@ -155,7 +156,7 @@ $ veriself demo
       "rls"
     ],
     "as_of_definition": "2026-10-01",
-    "queried_at": "2026-10-07T17:08:30+08:00",
+    "queried_at": "2026-10-09T10:48:55+08:00",
     "row_versioning": "valid_to IS NULL AND metric_version = contract.version",
     "actor_role": "owner"
   }
@@ -308,7 +309,7 @@ MCP（stdio）可用于任何 MCP 客户端：
 
 | 项 | 结果 |
 | --- | --- |
-| 测试 | `uv run python -m pytest tests` → **373 passed** |
+| 测试 | `uv run python -m pytest tests` → **380 passed** |
 | 端到端红队验收 | `uv run python -m pytest tests/test_e2e_redteam.py` → **22 passed**（真实链路，非 mock） |
 | 合成数据 | 1,004 天 · `fact_observation` 106,424 行 · `fact_event` 5,882 行 |
 | 指标物化 | 18 个指标 · 14,408 行 · **重算幂等**（无变化时零写入，不累积历史） |
@@ -321,7 +322,6 @@ MCP（stdio）可用于任何 MCP 客户端：
 
 **已知限制**：
 
-- `dim_context` 与事实表**没有连接键**，因此 `dim_context.is_travel` 维度/过滤器暂不可用（已在契约里禁止放进白名单，列为 v0.2 工作项）。
 - `*_7d` 滚动指标的 `agg=mean`：day→month 上卷得到的是"滚动值的均值"，不等于月度均值。逐日展示不受影响。
 - `metrics/history/` 里的历史口径版本只用于 as-of 演示与文档，不进 `dim_metric`（该表主键只有 `metric_id`）。
 - **容器化尚未交付**：v0.1 没有 `Dockerfile` / `compose`（记在 `docs/03-路线图.md`）。

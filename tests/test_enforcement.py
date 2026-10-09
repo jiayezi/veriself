@@ -52,17 +52,16 @@ from veriself.semantic import (
 from veriself.semantic import compiler as compiler_mod
 
 # ------------------------------------------------------------------ 最小数仓
-_DIM_CONTEXT_WITH_KEY = """
-CREATE TABLE dim_context (
-    context_sk BIGINT, context_id VARCHAR, date_key INTEGER, is_travel BOOLEAN,
+_SUBJECT_DAY_WITH_KEY = """
+CREATE TABLE fact_subject_day (
+    subject_id VARCHAR, date_key INTEGER, is_travel BOOLEAN,
     is_illness BOOLEAN, location_type VARCHAR
 );
 """
-#: 冻结 DDL 的 dim_context：没有任何日期/主体键（用于 fail-closed 回归测试）
-_DIM_CONTEXT_WITHOUT_KEY = """
-CREATE TABLE dim_context (
-    context_sk BIGINT, context_id VARCHAR, is_travel BOOLEAN, is_illness BOOLEAN,
-    location_type VARCHAR
+#: 缺复合键的存量表：必须拒绝，不能只按残缺列连接
+_SUBJECT_DAY_WITHOUT_KEY = """
+CREATE TABLE fact_subject_day (
+    is_travel BOOLEAN, is_illness BOOLEAN, location_type VARCHAR
 );
 """
 DDL = """
@@ -103,9 +102,9 @@ def _insert(conn, metric_id, subject_id, day, value, version=1, valid_to=None):
 
 
 def _make_conn(with_context_key: bool = True) -> duckdb.DuckDBPyConnection:
-    """内存星型模型 + 确定性数据。`with_context_key=False` 模拟冻结 DDL 的 dim_context（无 date_key）。"""
+    """内存星型模型 + 确定性数据。`with_context_key=False` 模拟缺复合键的 fact_subject_day。"""
     conn = duckdb.connect(":memory:")
-    context_ddl = _DIM_CONTEXT_WITH_KEY if with_context_key else _DIM_CONTEXT_WITHOUT_KEY
+    context_ddl = _SUBJECT_DAY_WITH_KEY if with_context_key else _SUBJECT_DAY_WITHOUT_KEY
     conn.execute(DDL + context_ddl)
 
     day = dt.date(2026, 1, 1)
@@ -121,10 +120,16 @@ def _make_conn(with_context_key: bool = True) -> duckdb.DuckDBPyConnection:
         day += dt.timedelta(days=1)
     conn.executemany("INSERT INTO dim_date VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
 
-    # dim_context：只有 1 月 2 日标记为旅行
+    # fact_subject_day：只有 1 月 2 日标记为旅行
     if with_context_key:
-        conn.execute("INSERT INTO dim_context VALUES (1, 'C1', ?, TRUE, FALSE, 'other')", [_key(dt.date(2026, 1, 2))])
-        conn.execute("INSERT INTO dim_context VALUES (2, 'C2', ?, FALSE, FALSE, 'home')", [_key(JAN1)])
+        conn.execute(
+            "INSERT INTO fact_subject_day VALUES ('S001', ?, TRUE, FALSE, 'other')",
+            [_key(dt.date(2026, 1, 2))],
+        )
+        conn.execute(
+            "INSERT INTO fact_subject_day VALUES ('S001', ?, FALSE, FALSE, 'home')",
+            [_key(JAN1)],
+        )
 
     # dim_subject：SCD2，S001 有两条历史（只有 is_current=TRUE 那条该被用）
     subjects = []
@@ -253,7 +258,7 @@ def contracts():
         _contract(metric_id="subject.versioned", version=2, agg="mean"),
         _contract(metric_id="subject.need_demo", allowed_dimensions=["subject.sleep_need_h"]),
         _contract(metric_id="subject.orphan", agg="mean"),
-        _contract(metric_id="subject.is_travel_demo", allowed_filters=["date.between", "dim_context.is_travel"]),
+        _contract(metric_id="subject.is_travel_demo", allowed_filters=["date.between", "context.is_travel"]),
         _contract(metric_id="subject.bad_dim", allowed_dimensions=["widget.foo"]),
         _contract(metric_id="subject.bad_column", allowed_dimensions=["date.not_a_col"]),
         _contract(metric_id="subject.bad_filter", allowed_filters=["metric.value"]),
@@ -573,7 +578,7 @@ def test_redteam_dimension_out_of_whitelist(contracts):
 def test_redteam_filter_out_of_whitelist(contracts):
     """红队 2b：越界过滤器 → filter_not_allowed:"""
     with pytest.raises(config.EnforcementError) as exc:
-        _compile({"metrics": ["subject.sleep_daily"], "filters": {"dim_context.is_travel": True}}, contracts)
+        _compile({"metrics": ["subject.sleep_daily"], "filters": {"context.is_travel": True}}, contracts)
     assert exc.value.rule == "dimensions"
     assert exc.value.detail.startswith("filter_not_allowed:")
 
@@ -713,7 +718,11 @@ def test_compile_builds_sql_once_and_reuses_ast(contracts, monkeypatch):
         ("SELECT system('id')", "未声明的函数"),
         ("ATTACH 'evil.db' AS e", "必须是 SELECT"),
         ("SELECT a FROM fact_metric_value CROSS JOIN dim_date", "CROSS JOIN"),
-        ("SELECT a FROM fact_metric_value JOIN dim_context ON TRUE", "JOIN"),
+        ("SELECT a FROM fact_metric_value JOIN fact_subject_day ON TRUE", "JOIN"),
+        (
+            "SELECT a FROM fact_metric_value AS f JOIN fact_subject_day AS sd ON f.date_key = sd.date_key",
+            "缺少已声明键",
+        ),
         ("SELECT a FROM fact_metric_value JOIN dim_subject ON dim_date.date_key = dim_subject.subject_sk",
          "JOIN"),
     ],
@@ -1004,25 +1013,28 @@ def test_date_month_equality_filter(contracts, conn):
     ]
 
 
-def test_dim_context_is_travel_filter(contracts, conn):
-    payload = {"metrics": ["subject.is_travel_demo"], "filters": {"dim_context.is_travel": True}}
+def test_context_is_travel_filter_joins_subject_and_date(contracts, conn):
+    payload = {"metrics": ["subject.is_travel_demo"], "filters": {"context.is_travel": True}}
     compiled = _compile(payload, contracts)
-    assert "INNER JOIN" in compiled.sql and "dim_context" in compiled.sql
+    assert "INNER JOIN" in compiled.sql and "fact_subject_day" in compiled.sql
+    assert '"sd"."subject_id" = "f"."subject_id"' in compiled.sql
+    assert '"sd"."date_key" = "f"."date_key"' in compiled.sql
     assert _run(payload, contracts, conn).data == [
         {"date.day": "2026-01-02", "subject.is_travel_demo": 2.0}
     ]
 
 
-def test_dim_context_without_join_key_fails_closed(contracts):
-    """冻结 DDL 的 dim_context 没有 date_key：必须明确拒绝，而不是给出错数。"""
+def test_fact_subject_day_without_join_key_fails_closed(contracts):
+    """缺 subject_id / date_key 的存量表必须明确拒绝，而不是给出错数。"""
     broken = _make_conn(with_context_key=False)
     try:
         compiled = _compile(
-            {"metrics": ["subject.is_travel_demo"], "filters": {"dim_context.is_travel": True}}, contracts
+            {"metrics": ["subject.is_travel_demo"], "filters": {"context.is_travel": True}}, contracts
         )
         with pytest.raises(config.EnforcementError) as exc:
             execute_query(compiled, conn=broken, audit=False)
         assert exc.value.detail.startswith("ast_violation:")
+        assert "subject_id" in exc.value.detail
         assert "date_key" in exc.value.detail
     finally:
         broken.close()

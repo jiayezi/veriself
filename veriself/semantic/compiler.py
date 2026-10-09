@@ -123,7 +123,12 @@ class _Builder:
 
     @staticmethod
     def _alias_for(table: str) -> str:
-        return {"dim_date": "d", "dim_context": "c", "dim_subject": "s", "fact_metric_value": "f"}[table]
+        return {
+            "dim_date": "d",
+            "fact_subject_day": "sd",
+            "dim_subject": "s",
+            "fact_metric_value": "f",
+        }[table]
 
     def _needs_join(self, table: str) -> bool:
         if table not in lineage_mod.DIMENSION_TABLES or table == "dim_date":
@@ -262,10 +267,13 @@ class _Builder:
             on=self.col("date_key", "d").eq(self.col("date_key", "f")),
             join_type="inner",
         )
-        if self._needs_join("dim_context"):
+        if self._needs_join("fact_subject_day"):
             query = query.join(
-                exp.table_("dim_context", alias="c", quoted=True),
-                on=self.col("date_key", "c").eq(self.col("date_key", "f")),
+                exp.table_("fact_subject_day", alias="sd", quoted=True),
+                on=exp.and_(
+                    self.col("subject_id", "sd").eq(self.col("subject_id", "f")),
+                    self.col("date_key", "sd").eq(self.col("date_key", "f")),
+                ),
                 join_type="inner",
             )
         if self._needs_join("dim_subject"):
@@ -398,22 +406,23 @@ def _connect():
 
 
 def _guard_context_join(conn, sql: str) -> None:
-    """fail-closed：`dim_context` 在冻结 DDL 里没有可连接的键列时，明确拒绝而不是给出错数。"""
-    if "dim_context" not in sql:
+    """fail-closed：存量库的 `fact_subject_day` 缺复合键时拒绝，而不是按残缺键给出错数。"""
+    if "fact_subject_day" not in sql:
         return
     try:
-        info = conn.execute("PRAGMA table_info('dim_context')").fetchall()
+        info = conn.execute("PRAGMA table_info('fact_subject_day')").fetchall()
     except duckdb.Error:
         return
     if not info:  # 表不存在，交给主查询报错
         return
     columns = {str(row[1]) for row in info}
-    if "date_key" not in columns:
+    missing = {"subject_id", "date_key"} - columns
+    if missing:
         raise config.EnforcementError(
             "ast_join_path",
-            f"{config.REASON_PREFIXES['ast']} dim_context 缺少已声明 JOIN 路径所需的 date_key 列"
-            f"（冻结 DDL §1 的 dim_context 无任何外键，无法与 fact_metric_value 对齐）；"
-            f"请让 warehouse 在 dim_context 增加 date_key，或从指标白名单里移除 dim_context 过滤器",
+            f"{config.REASON_PREFIXES['ast']} fact_subject_day 缺少已声明 JOIN 路径所需的"
+            f" {sorted(missing)} 列（连接必须同时用 subject_id 与 date_key）；"
+            f"请重建数仓（veriself synth && veriself init）",
         )
 
 

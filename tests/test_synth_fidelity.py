@@ -95,7 +95,9 @@ CONTRACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "version", "recorded_at",
     ),
     "dim_source": ("source_id", "display_name", "reliability_tier"),
-    "dim_context": ("context_sk", "context_id", "is_travel", "is_illness", "location_type"),
+    "fact_subject_day": (
+        "subject_id", "date_key", "is_travel", "is_illness", "location_type",
+    ),
     "fact_observation": (
         "observation_id", "subject_id", "observed_at", "date_key", "channel",
         "value", "source_id", "recorded_at",
@@ -576,12 +578,36 @@ def test_row_counts_within_expected_ranges(synth: SynthRun) -> None:
     assert counts["dim_date"] == expected_days == 1004
     assert counts["dim_subject"] >= 2
     assert counts["dim_source"] == 4
-    assert counts["dim_context"] >= 4
+    assert counts["fact_subject_day"] == expected_days
     assert 50_000 <= counts["fact_observation"] <= 1_000_000, counts["fact_observation"]
     assert 3_000 <= counts["fact_event"] <= 20_000, counts["fact_event"]
     assert counts["latent_daily"] == expected_days
     assert counts["obs_daily"] == expected_days * len(DAILY_CHANNEL_NAMES)
     assert counts["obs_intraday"] == expected_days * (SLOTS_PER_DAY + 2 * 24)
+
+
+def test_fact_subject_day_is_one_row_per_day(synth: SynthRun) -> None:
+    """日情境与潜在结构按 date_key 对齐，粒度是主体 × 天，不是状态组合。"""
+
+    expected_days = len(pd.date_range(config.SYNTH_START_DATE, config.SYNTH_END_DATE, freq="D"))
+    day = synth.table("fact_subject_day")
+    assert len(day) == expected_days
+    assert int(day.duplicated(["subject_id", "date_key"]).sum()) == 0
+    assert set(day["subject_id"]) == {config.SUBJECT_ID}
+    assert day["is_travel"].notna().all() and day["is_illness"].notna().all()
+    assert set(day["location_type"]) <= {"home", "office", "other"}
+    assert (day.loc[day["is_travel"].to_numpy(dtype=bool), "location_type"] == "other").all()
+    assert not (day.loc[~day["is_travel"].to_numpy(dtype=bool), "location_type"] == "other").any()
+
+    latent = synth.latent().reset_index()
+    merged = day.merge(
+        latent.loc[:, ["date_key", "is_travel", "is_illness"]],
+        on="date_key",
+        suffixes=("_day", "_latent"),
+    )
+    assert len(merged) == expected_days
+    assert (merged["is_travel_day"].to_numpy(dtype=bool) == merged["is_travel_latent"].to_numpy(dtype=bool)).all()
+    assert (merged["is_illness_day"].to_numpy(dtype=bool) == merged["is_illness_latent"].to_numpy(dtype=bool)).all()
 
 
 def test_metric_requirements_are_all_non_empty(synth: SynthRun) -> None:

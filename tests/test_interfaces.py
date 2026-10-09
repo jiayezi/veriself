@@ -42,11 +42,10 @@ BUSINESS_TABLES = (
     "fact_observation",
     "fact_event",
     "fact_metric_value",
-    "fact_memory_assertion",
+    "fact_subject_day",
     "dim_date",
     "dim_subject",
     "dim_source",
-    "dim_context",
     "dim_metric",
 )
 runner = CliRunner()

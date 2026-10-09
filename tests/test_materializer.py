@@ -35,8 +35,9 @@ CREATE TABLE dim_subject (
 CREATE TABLE dim_source (
     source_id VARCHAR PRIMARY KEY, display_name VARCHAR, reliability_tier VARCHAR
 );
-CREATE TABLE dim_context (
-    context_sk BIGINT, context_id VARCHAR, is_travel BOOLEAN, is_illness BOOLEAN, location_type VARCHAR
+CREATE TABLE fact_subject_day (
+    subject_id VARCHAR, date_key INTEGER, is_travel BOOLEAN, is_illness BOOLEAN, location_type VARCHAR,
+    PRIMARY KEY (subject_id, date_key)
 );
 CREATE TABLE fact_observation (
     observation_id BIGINT, subject_id VARCHAR, observed_at TIMESTAMP, date_key INTEGER,

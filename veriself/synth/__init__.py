@@ -2,7 +2,7 @@
 
 对外只暴露一个入口 :func:`generate_all`：按固定种子生成 2024-01-01..2026-09-30 的
 个人纵向数据，写出 ``data/synth/*.parquet`` 中间产物与 ``data/warehouse.duckdb``
-的 6 张契约表（``dim_date`` / ``dim_subject`` / ``dim_source`` / ``dim_context`` /
+的 6 张来源表（``dim_date`` / ``dim_subject`` / ``dim_source`` / ``fact_subject_day`` /
 ``fact_observation`` / ``fact_event``）。
 
 模块划分：

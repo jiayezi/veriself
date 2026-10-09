@@ -32,8 +32,7 @@ __all__ = [
 _TABLE_FOR_NAMESPACE: dict[str, str] = {
     "date": "dim_date",
     "dim_date": "dim_date",
-    "context": "dim_context",
-    "dim_context": "dim_context",
+    "context": "fact_subject_day",
     "subject": "dim_subject",
     "dim_subject": "dim_subject",
     #: 事实表本身只暴露 metric/date 两个语义命名空间给过滤器
@@ -56,11 +55,8 @@ COLUMN_ALIASES: dict[str, str] = {
     "date.is_weekend": "is_weekend",
     "date.is_holiday": "is_holiday",
     "context.is_travel": "is_travel",
-    "dim_context.is_travel": "is_travel",
     "context.is_illness": "is_illness",
-    "dim_context.is_illness": "is_illness",
     "context.location_type": "location_type",
-    "dim_context.location_type": "location_type",
     "subject.sleep_need_h": "sleep_need_h",
     "dim_subject.sleep_need_h": "sleep_need_h",
     "subject.base_weight_kg": "base_weight_kg",
@@ -80,8 +76,9 @@ TABLE_COLUMNS: Mapping[str, frozenset[str]] = {
         {"date_key", "date", "year", "quarter", "month", "week", "day_of_week",
          "weekday_name", "is_weekend", "is_holiday"}
     ),
-    # date_key 是语义层为该表声明的连接路径列（冻结 DDL 未定义，见 lineage 模块说明）
-    "dim_context": frozenset({"context_sk", "context_id", "date_key", "is_travel", "is_illness", "location_type"}),
+    "fact_subject_day": frozenset(
+        {"subject_id", "date_key", "is_travel", "is_illness", "location_type"}
+    ),
     "dim_subject": frozenset(
         {"subject_sk", "subject_id", "name", "birth_date", "sleep_need_h", "base_weight_kg",
          "timezone", "valid_from", "valid_to", "is_current", "version", "recorded_at"}

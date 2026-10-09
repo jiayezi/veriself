@@ -7,7 +7,7 @@
    `lineage.upstream_metrics` 中、白名单取值合法、`rls_policy` 分布与清单一致、无环。
 2. `metrics/history/*.yml`：2 个历史版本（`version=1`），与当前版本口径真实不同，
    且不被 `metrics/*.yml` 的非递归扫描当成主目录契约。
-3. `schema.sql` 是唯一 DDL 来源，10 张表的列名/类型/可空性/主键与契约逐字一致，
+3. `schema.sql` 是唯一 DDL 来源，9 张表的列名/类型/可空性/主键与契约逐字一致，
    `ensure_schema` 幂等。
 4. `loader`：`upsert_dim_metric` 幂等且哈希来自 `veriself.contract_hash`；
    `materialize_metric` 双时间轴正确（先关旧行再插新行）；`write_audit` 自增写审计。
@@ -130,12 +130,17 @@ DIMENSION_VOCABULARY = {
     "date.day_of_week",   # 星期序号（1=周一…7=周日）——周内趋势必须用这个
     "date.month",
     "date.quarter",
+    "context.is_travel",
+    "context.is_illness",
+    "context.location_type",
 }
 FILTER_VOCABULARY = {
     "date.between",
     "date.last_n_days",
     "date.month",
-    "dim_context.is_travel",
+    "context.is_travel",
+    "context.is_illness",
+    "context.location_type",
 }
 
 # 契约 §2 的必填字段全集：semantic 的 MetricContract 是 extra="forbid"，多一个键就拒载。
@@ -152,7 +157,6 @@ KNOWN_SOURCE_TABLES = {
     "fact_event",
     "dim_subject",
     "dim_date",
-    "dim_context",
     "dim_metric",
     "fact_metric_value",
 }
@@ -190,12 +194,12 @@ EXPECTED_SCHEMA: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("display_name", "VARCHAR", "YES"),
         ("reliability_tier", "VARCHAR", "YES"),
     ),
-    "dim_context": (
-        ("context_sk", "BIGINT", "NO"),
-        ("context_id", "VARCHAR", "NO"),
-        ("is_travel", "BOOLEAN", "YES"),
-        ("is_illness", "BOOLEAN", "YES"),
-        ("location_type", "VARCHAR", "YES"),
+    "fact_subject_day": (
+        ("subject_id", "VARCHAR", "NO"),
+        ("date_key", "INTEGER", "NO"),
+        ("is_travel", "BOOLEAN", "NO"),
+        ("is_illness", "BOOLEAN", "NO"),
+        ("location_type", "VARCHAR", "NO"),
     ),
     "dim_metric": (
         ("metric_id", "VARCHAR", "NO"),
@@ -240,17 +244,6 @@ EXPECTED_SCHEMA: dict[str, tuple[tuple[str, str, str], ...]] = {
         ("valid_from", "TIMESTAMP", "NO"),
         ("valid_to", "TIMESTAMP", "YES"),
     ),
-    "fact_memory_assertion": (
-        ("assertion_id", "BIGINT", "NO"),
-        ("subject_id", "VARCHAR", "NO"),
-        ("statement", "VARCHAR", "NO"),
-        ("confidence", "DOUBLE", "NO"),
-        ("status", "VARCHAR", "NO"),
-        ("valid_from", "TIMESTAMP", "NO"),
-        ("valid_to", "TIMESTAMP", "YES"),
-        ("recorded_at", "TIMESTAMP", "NO"),
-        ("provenance_event_ids", "VARCHAR", "YES"),
-    ),
     "fact_audit_log": (
         ("audit_id", "BIGINT", "NO"),
         ("queried_at", "TIMESTAMP", "NO"),
@@ -269,14 +262,13 @@ EXPECTED_PRIMARY_KEYS: dict[str, set[str]] = {
     "dim_date": {"date_key"},
     "dim_subject": {"subject_sk"},
     "dim_source": {"source_id"},
-    "dim_context": {"context_sk"},
+    "fact_subject_day": {"subject_id", "date_key"},
     "dim_metric": {"metric_id"},
     # 观测用**业务自然键**：同一主体同一通道同一时刻只应有一条读数
     "fact_observation": {"subject_id", "observed_at", "channel"},
     # 事件刻意不加自然键：同一分钟的多笔消费是合法数据，事件真身份须由上游提供
     "fact_event": {"event_id"},
     "fact_metric_value": {"metric_id", "subject_id", "date_key", "valid_from"},
-    "fact_memory_assertion": {"assertion_id"},
     "fact_audit_log": {"audit_id"},
 }
 
@@ -527,13 +519,12 @@ def test_history_versions_have_real_dialect_difference(history: dict) -> None:
     assert "focus_score - 40" in focus, "v1 应为 40-90 线性拉伸口径"
 
 
-def test_dim_context_is_travel_is_not_granted_without_join_path(contracts: dict) -> None:
-    """`dim_context.is_travel` 在契约白名单内，但 dim_context 没有任何事实表外键
-    （无 context_sk / date_key），授予它只会让 ast_join_path 或运行时报错。
-    因此 18 个指标都不授予该维度；若契约补上连接键，本用例需要同步更新。
-    """
-    granted = {d for data in contracts.values() for d in data["allowed_dimensions"]}
-    assert "dim_context.is_travel" not in granted
+def test_context_dimensions_are_granted_on_every_metric(contracts: dict) -> None:
+    """日情境已经能按 (subject_id, date_key) 连接，18 个当前指标都开放这三列。"""
+    context = {"context.is_travel", "context.is_illness", "context.location_type"}
+    for metric_id, data in contracts.items():
+        assert context <= set(data["allowed_dimensions"]), metric_id
+        assert context <= set(data["allowed_filters"]), metric_id
 
 
 # ================================================================ 2. contract_hash
@@ -563,7 +554,7 @@ def test_schema_sql_is_the_only_ddl_source() -> None:
     statements = [
         line.strip() for line in sql.splitlines() if line.strip().upper().startswith("CREATE TABLE")
     ]
-    assert len(statements) == 10, statements
+    assert len(statements) == 9, statements
     assert all("IF NOT EXISTS" in statement for statement in statements)
     for table in EXPECTED_SCHEMA:
         assert f"CREATE TABLE IF NOT EXISTS {table}" in sql

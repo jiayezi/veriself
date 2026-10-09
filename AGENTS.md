@@ -190,8 +190,9 @@ veriself/metrics/subject.sleep_debt_7d.yml                    # 一个完整契�
   公式里写裸 `date_key`（不要写 `o.date_key`；来源日期列已改名为 `obs_date_key`/`evt_date_key`）。
 - **`agg` 是"跨粒度上卷方式"**，不是同一粒度内的聚合：`sleep_debt_7d` 用 `sum`，
   `focus_score` 用 `mean`。填错会静默算出错误的数。桶内聚合用 `bucket.agg`，两者语义分离。
-- **`dim_context` 与事实表没有连接键**：`dim_context.is_travel` 目前不可用，**不要**放进
-  `allowed_dimensions` / `allowed_filters`。
+- **日情境在 `fact_subject_day`**：粒度是 `(subject_id, date_key)`。查询名用
+  `context.is_travel` / `context.is_illness` / `context.location_type`。
+  连接必须同时带这两个键。不要恢复没有主体键的 `dim_context`。
 - **单主体数据下 `partner`/`researcher` 查 `aggregate_min5` 指标恒为 0 行**——这是隐私闸门
   （`HAVING COUNT(DISTINCT subject_id) >= 5`）的正确行为，不是 bug。**不要为了演示好看而放宽它。**
 - **测试各自管理独立目录**：用 `data/` 下的自管目录，不要依赖 `tmp_path`。

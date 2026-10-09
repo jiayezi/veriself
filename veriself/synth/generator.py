@@ -1,10 +1,10 @@
-"""编排：一键生成合成数据（Parquet 中间产物 + ``data/warehouse.duckdb`` 前 6 张契约表）。
+"""编排：一键生成合成数据（Parquet 中间产物 + ``data/warehouse.duckdb`` 的 6 张来源表）。
 
 流程：``dim_date`` -> 外生窗口 -> 潜在结构 -> 观测通道 -> 维表/事件 -> 写 Parquet -> 装载 DuckDB。
 
 DDL 归属：契约规定 ``veriself/warehouse/schema.sql`` 是唯一 DDL 来源。本模块
 **优先执行该文件**；若它不存在（或执行失败），才用 DuckDB 从 DataFrame 推断列类型建表
-（``CREATE TABLE t AS SELECT * FROM df LIMIT 0``），并给出警告。装载只影响契约前 6 张表：
+（``CREATE TABLE t AS SELECT * FROM df LIMIT 0``），并给出警告。装载只影响下面 6 张来源表：
 先 ``DELETE`` 再 ``INSERT ... BY NAME``，不 DROP、不动其他表（如 ``dim_metric``）。
 """
 
@@ -26,12 +26,12 @@ __all__ = [
     "generate_all",
 ]
 
-#: 本模块负责写入的 6 张契约表（顺序即装载顺序）
+#: 本模块负责写入的 6 张来源表（顺序即装载顺序）
 CONTRACT_TABLES: tuple[str, ...] = (
     "dim_date",
     "dim_subject",
     "dim_source",
-    "dim_context",
+    "fact_subject_day",
     "fact_observation",
     "fact_event",
 )
@@ -44,7 +44,7 @@ ORDER_KEYS: dict[str, tuple[str, ...]] = {
     "dim_date": ("date_key",),
     "dim_subject": ("subject_sk",),
     "dim_source": ("source_id",),
-    "dim_context": ("context_sk",),
+    "fact_subject_day": ("subject_id", "date_key"),
     "fact_observation": ("observed_at", "channel"),
     "fact_event": ("event_id",),
     "latent_daily": ("date_key",),
@@ -105,7 +105,7 @@ def build_tables(dates: pd.DatetimeIndex) -> tuple[dict[str, pd.DataFrame], dict
         "dim_date": dim_date,
         "dim_subject": dimensions.build_dim_subject(windows.plan_start),
         "dim_source": dimensions.build_dim_source(),
-        "dim_context": dimensions.build_dim_context(latent_daily, dim_date),
+        "fact_subject_day": dimensions.build_fact_subject_day(latent_daily, dim_date),
         "fact_observation": _fact_observation(daily_obs, intraday_obs),
         "fact_event": events.build_fact_event(dates, latent_daily, windows),
     }

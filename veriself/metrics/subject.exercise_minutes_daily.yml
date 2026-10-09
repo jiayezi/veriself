@@ -11,8 +11,8 @@ direction: higher_better
 agg: mean
 grain: day
 entity: subject
-allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter]
-allowed_filters: [date.between, date.last_n_days, date.month]
+allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter, context.is_travel, context.is_illness, context.location_type]
+allowed_filters: [date.between, date.last_n_days, date.month, context.is_travel, context.is_illness, context.location_type]
 rls_policy: aggregate_min5
 formula_sql: |
   fact_observation.exercise_minutes
