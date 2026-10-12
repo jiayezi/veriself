@@ -186,10 +186,7 @@ $ veriself demo
 - **不是语义格式。** 口径是 YAML，并将保持与 Open Semantic Interchange / Apache Ossie 兼容。我们不在格式上竞争。
 - **不是 BI 仪表盘。** 不提供拖拽式看板，图表是下游的事。
 - **不是记忆框架。** 不做检索或 embedding。我们做的是记忆框架跳过的那部分：版本、粒度、as-of、血缘、审计。
-- **还不是领域无关的。** 执行引擎（contract → compile → enforce → audit）本身与领域无关，
-  但**物理模型映射目前硬接在"个人/纵向数据"这个形态上**（日粒度、`(date_key, subject_id)` 骨架、
-  声明的 JOIN 路径仍是模块级常量）。泛化成 `domains/*.yml` 描述符是
-  **[路线图 v0.2 第 5 项](https://github.com/jiayezi/veriself/blob/main/docs/03-路线图.md)**——在此之前，换一个领域意味着改引擎代码。
+- **还不是一套可以换骨架的通用指标执行层。** 查询对象、五条校验、RLS 改写和审计头不认识「睡眠」或「支出」，它们读的是已经物化好的 `fact_metric_value`。查询期的表、JOIN 和语义名在 [`veriself/domains/person.yml`](https://github.com/jiayezi/veriself/blob/main/veriself/domains/person.yml)，可用 `VERISELF_DOMAINS_DIR` 覆盖。物化骨架仍焊在个人纵向数据上：日粒度、`(date_key, subject_id)`、`fact_observation` / `fact_event` / `dim_subject`，表名写在物化器和 `schema.sql` 里。从 PyPI 安装后换不了这套骨架；沿用它来加通道和指标可以。换来源表、主体键或日期编码要改引擎，这是 [路线图 v1.0 第 15 项「第二个 adapter」](https://github.com/jiayezi/veriself/blob/main/docs/03-路线图.md#v10半年后)。
 - **无遥测、无云、无账号。** 一个文件，local-first。
 
 ---
@@ -249,7 +246,8 @@ CLI (veriself)   MCP server   ← LLM 仅有的两个入口
 
 | veriself | dbt MetricFlow / 业界 | 说明 |
 | --- | --- | --- |
-| `semantic_models/*.yml` | `semantic_models.yml` | 物理表之上的逻辑列：通道 → 日粒度列、事件表达式、SCD2 维度列 |
+| `semantic_models/*.yml` | `semantic_models.yml` | 物化期逻辑列：通道 → 日粒度列、事件表达式、SCD2 维度列。换这份文件换不了骨架 |
+| `domains/person.yml` | 查询期的语义层绑定 | 谁 JOIN 谁、语义名对应哪一列。查询 `dim_subject` 用 `is_current`；物化按业务日有效期，两套语义不写在同一份文件里 |
 | `metrics/*.yml` | `metrics.yml` | 一个文件一个指标，带版本，每个指标有冻结的维度/过滤器白名单 |
 | `formula_sql` | `type_params.expr`（派生指标） | 只有派生指标允许 SQL；这里被限制为日粒度标量表达式 |
 | `bucket: {agg: ...}` | 指标的 `type_params.window` + `time_granularity` | 非日粒度的桶内聚合（声明式，不写 `OVER()` 样板） |
@@ -322,6 +320,7 @@ MCP（stdio）可用于任何 MCP 客户端：
 
 **已知限制**：
 
+- **换不了物化骨架。** PyPI 安装包里的来源表、`(date_key, subject_id)` 和 `schema.sql` 是固定的。`VERISELF_METRICS_DIR`、`VERISELF_SEMANTIC_MODELS_DIR`、`VERISELF_DOMAINS_DIR` 只能在这套骨架上换契约、逻辑列和查询期 JOIN。
 - `*_7d` 滚动指标的 `agg=mean`：day→month 上卷得到的是"滚动值的均值"，不等于月度均值。逐日展示不受影响。
 - `metrics/history/` 会写入 `dim_metric`（主键 `(metric_id, version)`）。查询和物化仍只使用当前目录里的口径。读某行指标的 `grain` 必须同时匹配 `version = metric_version`。
 - **容器化尚未交付**：v0.1 没有 `Dockerfile` / `compose`（记在 `docs/03-路线图.md`）。
