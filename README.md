@@ -66,7 +66,7 @@ $ veriself demo
 ┌─ 审计头 audit（契约第 4 节） ────────────────────────────────────────────────────────────────────────────────────────┐
 │ 查询角色        owner                                                                                                │
 │ 指标版本        subject.sleep_debt_7d = 2                                                                            │
-│ 契约哈希        subject.sleep_debt_7d = sha256:c046cbeddfe83d66                                                      │
+│ 契约哈希        subject.sleep_debt_7d = sha256:9b5b46de2a2d95a2                                                      │
 │ RLS 改写        owner_only                                                                                           │
 │ 强制校验        registered → dimensions → grain → ast_join_path → rls                                                │
 │ as-of 口径      2026-10-01                                                                                           │
@@ -142,7 +142,7 @@ $ veriself demo
       "subject.sleep_debt_7d": 2
     },
     "contract_hashes": {
-      "subject.sleep_debt_7d": "sha256:c046cbeddfe83d66"
+      "subject.sleep_debt_7d": "sha256:9b5b46de2a2d95a2"
     },
     "compiled_sql": "SELECT \"d\".\"date\" AS \"date.day\", ANY_VALUE(CASE WHEN \"f\".\"metric_id\" = ? THEN \"f\".\"value\" END) AS \"subject.sleep_debt_7d\" FROM \"fact_metric_value\" AS f INNER JOIN \"dim_date\" AS d ON \"d\".\"date_key\" = \"f\".\"date_key\" WHERE \"f\".\"valid_to\" IS NULL AND (\"f\".\"metric_id\" = ? AND \"f\".\"metric_version\" = ?) AND \"f\".\"subject_id\" = ? AND \"d\".\"date\" >= CAST(? AS DATE) AND \"d\".\"date\" <= CAST(? AS DATE) GROUP BY 1 ORDER BY \"date.day\" ASC LIMIT ?",
     "rls_applied": [
@@ -248,12 +248,10 @@ CLI (veriself)   MCP server   ← LLM 仅有的两个入口
 | --- | --- | --- |
 | `semantic_models/*.yml` | `semantic_models.yml` | 物化期逻辑列：通道 → 日粒度列、事件表达式、SCD2 维度列。换这份文件换不了骨架 |
 | `domains/person.yml` | 查询期的语义层绑定 | 谁 JOIN 谁、语义名对应哪一列。查询 `dim_subject` 用 `is_current`；物化按业务日有效期，两套语义不写在同一份文件里 |
-| `metrics/*.yml` | `metrics.yml` | 一个文件一个指标，带版本，每个指标有冻结的维度/过滤器白名单 |
-| `formula_sql` | `type_params.expr`（派生指标） | 只有派生指标允许 SQL；这里被限制为日粒度标量表达式 |
-| `bucket: {agg: ...}` | 指标的 `type_params.window` + `time_granularity` | 非日粒度的桶内聚合（声明式，不写 `OVER()` 样板） |
-| `agg`（顶层） | measure `agg` | **跨粒度上卷**：请求粒度比指标粒度粗时如何聚合 |
+| `metrics/*.yml` + `metrics/*.sql` | 指标 YAML + 模型 SQL | 查询契约在 YAML；计算是同名 SELECT，引擎不改写 |
+| `depends_on` | 指标依赖 | SQL 读 `fact_metric_value` 时的上游，必须与 WHERE 里的 `metric_id` 一致 |
+| `agg`（顶层） | measure `agg` | **查询期跨粒度上卷**：请求粒度比指标粒度粗时如何聚合 |
 | `direction` | `polarity` / `improves_when`（Avo） | `higher_better` / `lower_better` / `neutral` |
-| `lineage.sources` / `upstream_metrics` | 语义模型的 measure + 指标依赖 | `formula_sql` 里仅有的两种引用形式 |
 | `rls_policy` | data-mesh 策略 / 行级安全 | 治理写在**指标口径里**，不在旁挂目录里 |
 | `contract_hash` + `metric_version` | dbt 节点唯一 ID + 工件版本 | 每个数字把口径版本与哈希带进审计头 |
 

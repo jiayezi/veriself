@@ -149,10 +149,8 @@ def describe_metric(contracts: Mapping[str, MetricContract], metric_id: str) -> 
         )
     payload: dict[str, Any] = contract.model_dump()
     payload["contract_hash"] = contract.contract_hash
-    payload["lineage"] = {
-        "sources": list(contract.lineage.sources),
-        "upstream_metrics": list(contract.lineage.upstream_metrics),
-    }
+    payload["sql"] = contract.sql
+    payload["depends_on"] = list(contract.depends_on)
     payload["as_of_definition"] = AS_OF_DEFINITION
     payload["available_dimensions"] = _resolvable(contract.allowed_dimensions)
     payload["available_filters"] = _resolvable(contract.allowed_filters)

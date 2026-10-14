@@ -11,17 +11,18 @@
 ## 数据链路
 
 ```
-契约 veriself/metrics/*.yml
-  → load_contracts()  校验（引用/枚举/无环/列存在性）
-  → materializer      按 lineage 拓扑分层求值 → fact_metric_value（双时间轴）
+契约 veriself/metrics/*.yml + 同名 *.sql
+  → load_contracts()  校验（depends_on / 枚举 / 无环 / SQL 结构与列存在性）
+  → materializer      按 depends_on 拓扑原样执行 SELECT → fact_metric_value（双时间轴）
   → semantic          结构化查询对象 → 编译(sqlglot) → 五条强制校验 → RLS 改写 → 审计头
   → interfaces        CLI(veriself) / MCP server  ← AI 只能从这里进
 ```
 
 | 对象 | 说明 |
 | --- | --- |
-| `veriself/metrics/*.yml` | 唯一指标口径来源；改它等于改系统行为（**无需改 Python**） |
-| `veriself/semantic_models/*.yml` | **逻辑列定义**（通道→日粒度列、事件逻辑列、维度列 + 表别名）；materializer 与契约校验都从这里读 |
+| `veriself/metrics/*.yml` | 查询契约：粒度、版本、查询期 `agg`、RLS、维度/过滤器白名单、`depends_on` |
+| `veriself/metrics/*.sql` | 该指标的计算 SELECT。引擎不改写；改 SQL 即改口径哈希 |
+| `veriself/semantic_models/*.yml` | **逻辑列定义**（通道→日粒度列、事件逻辑列、维度列 + 表别名）；materializer 据此建来源视图 |
 | `veriself/config.py` | 冻结常量（角色、枚举、校验链、拒绝前缀） |
 | `veriself/contract_hash.py` | **唯一**哈希实现；其他模块必须 import，不得各自实现 |
 | `veriself/warehouse/schema.sql` | **唯一** DDL 来源 |
@@ -33,7 +34,8 @@
 
 1. **LLM 不写 SQL**：`interfaces` 层不得拼 SQL、不得直接 `import duckdb` 查业务表。
    唯一例外：`interfaces/auditlog.py` 只读 `ops.audit_log`，且用 DuckDB relation API（零查询关键字）。
-   所有业务 SQL 只能由 `semantic.compile_query` 产出。
+   查询 SQL 只能由 `semantic.compile_query` 产出。物化 SQL 是人维护的 `metrics/<metric_id>.sql`，
+   引擎原样执行，不改写，也不接受 LLM 提交的 SQL。
 2. **五条校验的组成与规范顺序**（`config.ENFORCED_CHECKS`）：
    `registered → dimensions → grain → ast_join_path → rls`。
    拒绝一律抛 `config.EnforcementError(rule, detail)`，`detail` 前缀取 `config.REASON_PREFIXES`。
@@ -51,11 +53,12 @@
    **禁止物理 DELETE**（删了就永久失去 as-of 复现能力）。
 5. **不许为了让测试/演示好看而放宽强制校验或隐私闸门**。
    宁可拒绝，不可静默改数：`limit` 超限是拒绝，不是截断。
-6. **`formula_sql` 里写物理表名**（`fact_observation.sleep_hours`），
-   窗口排序用**裸 `date_key`**，含 `OVER()` 的公式在物化时**不得再套一层聚合**（否则滚动和被二次平均）。
-   公式是日粒度标量表达式，**不能写普通聚合**。
-   非日粒度指标优先用声明式 **`bucket: {agg: ...}`**（桶内聚合由物化器自动完成），
-   与手写 `OVER()` 窗口公式互斥（加载期拒绝）。
+6. **一个指标一个 SQL 文件**：`metrics/<metric_id>.sql` 输出 `subject_id`、`date_key`、`value`。
+   只读 `obs_daily` / `evt_daily` / `subject_asof` / `fact_metric_value`。
+   读指标表时 WHERE 必须自带 `metric_id`、当前 `metric_version`、`valid_to IS NULL`，且与 `depends_on` 一致。
+   窗口和桶聚合写在 SQL 里。引擎包一层有限值过滤后原样执行，**不得再套聚合**。
+   非日粒度输出的 `date_key` 是桶内最后一个有数据的真实日期（`max(date_key)`）。
+   主体属性按业务日半开区间 `[valid_from, valid_to)` 连接，不要写成 `is_current`。
 7. **指标数量与 RLS 分布已冻结**：18 个指标；`owner_only` 8 / `aggregate_min5` 6 / `no_pii` 4。
    增删指标必须同步 `docs/01-指标清单.md`。
 
@@ -67,13 +70,14 @@
 
 | 模块 | 职责 |
 | --- | --- |
-| `veriself/metrics/*.yml` | 指标契约（口径/血缘/白名单/RLS/上卷方式） |
+| `veriself/metrics/*.yml` | 指标契约（粒度/版本/查询期 agg/白名单/RLS/`depends_on`） |
+| `veriself/metrics/*.sql` | 指标计算 SELECT；与 YAML 同主干，参与 `contract_hash` |
 | `veriself/semantic_models/*.yml` + `semantic_model.py` | **来源语义模型**：逻辑列定义与加载校验 |
 | `veriself/config.py` | 常量与异常 |
 | `contract_hash.py` | 契约哈希（审计头可信的基础） |
-| `sqlrefs.py` | **唯一**公式解析/重写实现（sqlglot AST；materializer 与 semantic 共用） |
+| `semantic/metric_sql.py` | 加载期检查指标 SQL（sqlglot，不改写） |
 | `warehouse/schema.sql` + `loader.py` | DDL / 单版本维度写入 / 双时间轴原语 |
-| `materializer/` | **契约公式求值**：`views`（语义模型→视图）+ `topo`（分层）+ `sqlbuild`（求值 SQL）+ `merge`（双时间轴合并） |
+| `materializer/` | **执行指标 SQL**：`views`（语义模型→视图）+ `topo`（`depends_on` 分层）+ `merge`（双时间轴合并） |
 | `semantic/` | **契约加载（含列存在性校验）→ 编译 → 五条校验 → RLS → 审计** |
 | `synth/` | 确定性合成数据（含**植入的潜在结构**） |
 | `interfaces/` | `veriself` CLI + MCP server（4 工具） |
@@ -161,19 +165,20 @@ uv run veriself demo                                        # 一条命令跑通
 
 ## 阅读顺序（**不要从 `main`/`cli.py` 开始**）
 
-本项目是"**契约决定一切**"：口径、可用维度、权限、血缘、上卷方式全在 `metrics/*.yml` 里，
-Python 只是执行者。
+本项目是"**契约决定一切**"：查询期口径、可用维度、权限、依赖、上卷方式在 `metrics/*.yml`，
+计算在同名 `.sql`。Python 只做校验、排序和落库。
 
 ```
-veriself/metrics/subject.sleep_debt_7d.yml                    # 一个完整契约
-  → veriself/metrics/subject.sleep_need_deviation_daily.yml   # 派生指标：metric('...') 引用上游
-  → veriself/metrics/subject.focus_score_weekly.yml           # 非日粒度：bucket 桶聚合
+veriself/metrics/subject.sleep_debt_7d.yml                    # 查询契约 + depends_on
+  → veriself/metrics/subject.sleep_debt_7d.sql                # 7 日窗口 SELECT
+  → veriself/metrics/subject.sleep_need_deviation_daily.sql   # 派生：读上游 fact_metric_value，按业务日连接 subject_asof
+  → veriself/metrics/subject.focus_score_weekly.sql           # 非日粒度：周桶聚合，date_key = max(date_key)
   → veriself/semantic_models/observation.yml                  # 逻辑列定义（通道 → 日粒度列）
   → veriself/config.py                      # 全部约定常量
-  → veriself/contract_hash.py               # 解释审计头凭什么可信
+  → veriself/contract_hash.py               # 解释审计头凭什么可信（哈希含 SQL 原文）
   → veriself/warehouse/schema.sql           # 注意 fact_metric_value 的双时间轴
-  → veriself/materializer/sqlbuild.py       # 指标怎么算（求值 SQL 构造）
-  → veriself/materializer/merge.py          # 双时间轴合并（无变化检测）
+  → veriself/semantic/metric_sql.py         # 加载期检查，不改写
+  → veriself/materializer/merge.py          # 原样执行 SELECT + 双时间轴合并
   → veriself/semantic/contract.py           # 契约加载与校验
   → veriself/semantic/query.py              # 结构化查询对象（无 SQL 通道）
   → veriself/semantic/enforcement.py        # 五条强制校验（重点看 ast_join_path）
@@ -187,9 +192,9 @@ veriself/metrics/subject.sleep_debt_7d.yml                    # 一个完整契�
 
 - **观测通道必须带 `FILTER (WHERE channel = ...)`**：`fact_observation` 是"通道-值"窄表，
   漏掉过滤会让每个通道列变成"当天全部通道的聚合"——**行数正常、数值全错**，极难发现。
-  公式里写裸 `date_key`（不要写 `o.date_key`；来源日期列已改名为 `obs_date_key`/`evt_date_key`）。
-- **`agg` 是"跨粒度上卷方式"**，不是同一粒度内的聚合：`sleep_debt_7d` 用 `sum`，
-  `focus_score` 用 `mean`。填错会静默算出错误的数。桶内聚合用 `bucket.agg`，两者语义分离。
+  过滤写在 `views.py` 生成的 `obs_daily` 里。指标 SQL 读视图列（`sleep_hours`），不要直接读 `fact_observation`。
+- **`agg` 是"查询期跨粒度上卷方式"**，不参与物化：`sleep_debt_7d` 的周/月上卷用 `mean`（滚动值再平均），
+  `spending_daily` 用 `sum`。桶内怎么聚合写在该指标的 `.sql` 里。
 - **主体属性按业务日取版本**：物化 `dim_subject.*` 时，`date_key` 当天 00:00:00 落在
   `[valid_from, valid_to)`。改回 `WHERE is_current` 会让历史日用上后来的睡眠需求。
   合成数据里两个版本的 `sleep_need_h` 必须不同。查询期选 `subject.*` 维度仍只连当前行。

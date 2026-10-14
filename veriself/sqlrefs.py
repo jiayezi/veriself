@@ -1,17 +1,19 @@
-"""契约 `formula_sql` 的解析与重写——**唯一权威实现**（基于 sqlglot AST）。
+"""SQL 片段的 sqlglot 解析工具。
 
-`materializer` 与 `semantic/lineage` 都从这里 import，禁止各自实现正则/子串解析。
-为什么必须用 AST 而不是正则：
+加载期的指标 SQL 检查在 `semantic/metric_sql.py`，这里不改写语句。
+本模块仍提供 `metric()` 抽取、列引用和字符串剥离。
 
-1. 注释里的 `metric('x')` 会被正则误判成真实引用（加载期误拒契约）；
-2. 字符串字面量里的 `fact_observation.` 前缀会被改写掉（静默改文案）；
-3. 注释里的 `fact_event.spending` 会被当成来源引用（骨架多 UNION 一个来源）；
+为什么用 AST 而不是正则：
+
+1. 注释里的 `metric('x')` 会被正则误判成真实引用；
+2. 字符串字面量里的表前缀会被改写掉；
+3. 注释里的 `表.列` 会被当成来源引用；
 4. `"over(" in ...` 子串启发式会把字面量里的 `over(` 误判成窗口函数。
 
-用 AST 后，注释与字符串字面量天然不是 Column / 函数调用节点，以上四类误判全部消失。
+用 AST 后，注释与字符串字面量天然不是 Column / 函数调用节点。
 
-依赖方向：本模块只依赖 `sqlglot`（与 `contract_hash.py` 同层、同风格），
-不依赖 `materializer` / `semantic`，两层均可安全 import。
+依赖方向：本模块只依赖 `sqlglot`（与 `contract_hash.py` 同层），
+不依赖 `materializer` / `semantic`。
 """
 
 from __future__ import annotations

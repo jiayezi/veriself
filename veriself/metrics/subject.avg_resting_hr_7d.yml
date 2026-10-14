@@ -14,12 +14,4 @@ entity: subject
 allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter, context.is_travel, context.is_illness, context.location_type]
 allowed_filters: [date.between, date.last_n_days, date.month, context.is_travel, context.is_illness, context.location_type]
 rls_policy: aggregate_min5
-formula_sql: |
-  avg(fact_observation.resting_hr) OVER (
-    PARTITION BY subject_id
-    ORDER BY date_key
-    ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
-  )
-lineage:
-  sources: [fact_observation.resting_hr]
-  upstream_metrics: []
+depends_on: []

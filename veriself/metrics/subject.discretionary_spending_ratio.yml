@@ -1,6 +1,6 @@
 # subject.discretionary_spending_ratio —— 非必要支出占比（第 0 层：事件视图的两个逻辑列相除）
 # 非必要支出 = category ∈ {dining, entertainment, shopping} 的 transaction 金额（见 semantic_models/event.yml）。
-# grain=month + bucket：物化器对日粒度比例自动做桶内均值（mean）并取桶内最后一个有数据的日期为 date_key。
+# grain=month：SQL 对每日比例取月均值，date_key 是该月最后一个有数据的日期。
 metric_id: subject.discretionary_spending_ratio
 version: 1
 status: active
@@ -16,9 +16,4 @@ entity: subject
 allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter, context.is_travel, context.is_illness, context.location_type]
 allowed_filters: [date.between, date.last_n_days, date.month, context.is_travel, context.is_illness, context.location_type]
 rls_policy: no_pii
-formula_sql: round(fact_event.discretionary_spending / nullif(fact_event.spending, 0), 4)
-bucket:
-  agg: mean
-lineage:
-  sources: [fact_event.discretionary_spending, fact_event.spending]
-  upstream_metrics: []
+depends_on: []

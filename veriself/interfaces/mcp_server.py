@@ -113,15 +113,6 @@ def _failure(exc: BaseException) -> str:
     raise exc
 
 
-def _find_field(detail: Mapping[str, Any], *tokens: str) -> Any:
-    """按字段名子串取契约字段（容忍 semantic 的字段改名，例如公式字段）。"""
-    for key, value in detail.items():
-        lowered = str(key).lower()
-        if all(token in lowered for token in tokens):
-            return value
-    return None
-
-
 def _visible_roles(policy: Any) -> list[str]:
     """`rls_policy` → 可访问角色列表（未知策略给空列表，不抛异常）。"""
     if not isinstance(policy, str) or not policy:
@@ -146,7 +137,7 @@ def _list_metrics() -> str:
 
 
 def _describe_metric(metric_id: str) -> str:
-    """查一个指标的完整契约：口径、公式、血缘（数据源/上游指标）、可用维度与过滤器白名单、契约哈希、版本。
+    """查一个指标的完整契约：口径、上游、可用维度与过滤器白名单、契约哈希、版本。
 
     metric_id 未注册时返回 `{"ok": false, "reason": "unknown_metric: ..."}`。
     """
@@ -199,7 +190,7 @@ def _explain_result(
     as_of: str | None = None,
     audit_id: int | None = None,
 ) -> str:
-    """解释结果口径：每个指标的公式/血缘/单位/方向/上卷语义，以及 RLS 可见角色、as-of 口径、契约哈希与版本。
+    """解释结果口径：每个指标的定义、上游、单位、方向、上卷语义，以及 RLS 可见角色、as-of 口径、契约哈希与版本。
 
     可选 `audit_id`：把某次查询的审计记录（请求、编译结果、RLS、校验链、结果状态）一起返回，
     用于回答"这个数当时是怎么被允许查出来的"。
@@ -222,13 +213,12 @@ def _explain_result(
                 "metric_id": detail.get("metric_id", metric_id),
                 "display_name": detail.get("display_name"),
                 "definition": detail.get("definition"),
-                "formula": _find_field(detail, "formula"),
+                "depends_on": list(detail.get("depends_on") or []),
                 "unit": detail.get("unit"),
                 "direction": detail.get("direction"),
                 "grain": detail.get("grain"),
                 "agg": detail.get("agg"),
                 "rollup": ROLLUP_SEMANTICS.get(aggregate, "见契约第 2 节的跨粒度上卷语义"),
-                "lineage": detail.get("lineage"),
                 "allowed_dimensions": list(detail.get("allowed_dimensions") or []),
                 "allowed_filters": list(detail.get("allowed_filters") or []),
                 "status": detail.get("status"),

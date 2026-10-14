@@ -12,12 +12,11 @@
       ensure_views           views.py      obs_daily / evt_daily / subject_asof，只建一次
       _topo_layers           topo.py       上游在前，同层按 metric_id 排序
       对每个 metric_id：
-        build_merge_sql      merge.py      四条语句：临时表、关变化、插入、关消失
-          _compute_ctes      sqlbuild.py   formula → spines → expr → rollup
-        执行这四条语句
+        build_merge_sql      merge.py      四条语句：临时表（指标 SQL 原文）、关变化、插入、关消失
+        执行这四条语句；重复 (subject_id, date_key) 在插入前拒绝
         DROP 临时表
 
-`_compute_ctes` 里盯四个局部变量：`formula`、`spines`、`expr`、`rollup`。
+指标怎么算，看 `veriself/metrics/<metric_id>.sql`。引擎不改写它。
 
 派生指标会把上游一并放进同一次 `materialize_all`。只传目标指标时，拓扑找不到上游，
 求值 SQL 也读不到上游的 `fact_metric_value`。循环里先跑到的是上游，目标指标在最后一层。

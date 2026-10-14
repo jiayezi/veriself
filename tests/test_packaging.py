@@ -84,7 +84,9 @@ def test_wheel_ships_contract_dirs() -> None:
         with zipfile.ZipFile(wheels[0]) as archive:
             names = set(archive.namelist())
         assert "veriself/metrics/subject.sleep_debt_7d.yml" in names
+        assert "veriself/metrics/subject.sleep_debt_7d.sql" in names
         assert "veriself/metrics/history/subject.sleep_debt_7d.yml" in names
+        assert "veriself/metrics/history/subject.sleep_debt_7d.sql" in names
         assert "veriself/semantic_models/observation.yml" in names
         assert "veriself/domains/person.yml" in names
         assert not any(name.startswith("veriself/_defaults/") for name in names)

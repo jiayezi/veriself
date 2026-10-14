@@ -268,24 +268,21 @@ def print_metric_detail(detail: Mapping[str, Any]) -> None:
     blocks: list[RenderableType] = [header, _panel("基本信息", basic_table)]
 
     definition = detail.get("definition")
-    formula = detail.get("formula_sql")
+    formula = detail.get("sql")
     if definition or formula:
         body = Group(
             Text(str(definition or "（无 definition）")),
             Text(""),
-            Syntax(str(formula or "（无 formula_sql）"), "sql", word_wrap=True, theme="ansi_dark"),
+            Syntax(str(formula or "（无 sql）"), "sql", word_wrap=True, theme="ansi_dark"),
         )
-        blocks.append(_panel("口径与公式", body))
+        blocks.append(_panel("口径 SQL", body))
 
-    lineage = detail.get("lineage")
-    lineage = dict(lineage) if isinstance(lineage, Mapping) else {}
-    lineage_table = Table.grid(padding=(0, 2))
-    lineage_table.add_column(style="bold")
-    lineage_table.add_column()
-    lineage_table.add_row("数据源 sources", _bullet_lines(list(lineage.get("sources") or [])))
-    upstream = list(lineage.get("upstream_metrics") or [])
-    lineage_table.add_row("上游指标 upstream", _bullet_lines(upstream))
-    blocks.append(_panel("血缘 lineage", lineage_table))
+    depends = list(detail.get("depends_on") or [])
+    depend_table = Table.grid(padding=(0, 2))
+    depend_table.add_column(style="bold")
+    depend_table.add_column()
+    depend_table.add_row("depends_on", _bullet_lines(depends))
+    blocks.append(_panel("上游指标", depend_table))
 
     dims = list(detail.get("allowed_dimensions") or [])
     filters = list(detail.get("allowed_filters") or [])
@@ -299,8 +296,8 @@ def print_metric_detail(detail: Mapping[str, Any]) -> None:
     rest = {
         key: value
         for key, value in detail.items()
-        if key not in set(basics) | {"metric_id", "id", "display_name", "definition", "formula_sql",
-                                     "lineage", "allowed_dimensions", "allowed_filters", "synonyms"}
+        if key not in set(basics) | {"metric_id", "id", "display_name", "definition", "sql",
+                                     "depends_on", "allowed_dimensions", "allowed_filters", "synonyms"}
     }
     if rest:
         rest_table = Table.grid(padding=(0, 2))

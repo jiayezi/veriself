@@ -4,9 +4,8 @@
 不依赖 `contract.py`，以免形成循环 import。
 
 职责：
-1. `formula_sql` 引用抽取：`metric('x')` 调用与 `表.列` 引用，
-   解析统一委托 `veriself.sqlrefs`（sqlglot AST）——本模块不再持有 SQL 正则。
-2. `upstream_metrics` 拓扑排序 + 环检测（契约 §2 规则 5）。
+1. 仍保留 `metric('x')` / `表.列` 抽取（委托 `veriself.sqlrefs`）。指标计算已改到 `.sql` 文件，加载期检查在 `metric_sql.py`。
+2. `depends_on` 拓扑排序 + 环检测（契约 §2）。
 3. JOIN 路径注册表：等值连接从领域文件派生，供 AST 校验使用（契约 §5 第 4 条）。
    `dim_metric` 是引擎表，不在领域文件里，这里补上 `metric_id` 这一条。
 
@@ -98,7 +97,7 @@ def source_covers(sources: Sequence[str], qualifier: str, column: str) -> bool:
 
 # ---------------------------------------------------------------- 拓扑
 def topological_layers(upstream: Mapping[str, Sequence[str]]) -> list[list[str]]:
-    """按 `upstream_metrics` 分层（Kahn）。
+    """按 `depends_on` 分层（Kahn）。
 
     `upstream` 的键集合即"全部已注册指标"；引用了不存在的上游或存在环 → `LineageError`。
     同层内按 metric_id 排序，保证确定性。
@@ -110,9 +109,9 @@ def topological_layers(upstream: Mapping[str, Sequence[str]]) -> list[list[str]]
     for node in nodes:
         for dep in upstream[node]:
             if dep not in known:
-                raise LineageError(f"metric '{node}' 的 upstream_metrics 引用了不存在的指标 '{dep}'")
+                raise LineageError(f"metric '{node}' 的 depends_on 引用了不存在的指标 '{dep}'")
             if dep == node:
-                raise LineageError(f"metric '{node}' 的 upstream_metrics 自引用，构成环")
+                raise LineageError(f"metric '{node}' 的 depends_on 自引用，构成环")
             indegree[node] += 1
             dependents[dep].append(node)
 
@@ -131,7 +130,7 @@ def topological_layers(upstream: Mapping[str, Sequence[str]]) -> list[list[str]]
         ready = sorted(nxt)
     if placed != len(nodes):
         stuck = sorted(node for node in nodes if indegree[node] > 0)
-        raise LineageError(f"upstream_metrics 存在环，涉及指标：{stuck}")
+        raise LineageError(f"depends_on 存在环，涉及指标：{stuck}")
     return layers
 
 

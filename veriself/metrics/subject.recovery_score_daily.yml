@@ -14,12 +14,4 @@ entity: subject
 allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter, context.is_travel, context.is_illness, context.location_type]
 allowed_filters: [date.between, date.last_n_days, date.month, context.is_travel, context.is_illness, context.location_type]
 rls_policy: owner_only
-formula_sql: |
-  CASE
-    WHEN fact_observation.resting_hr IS NOT NULL AND fact_observation.hrv IS NOT NULL THEN
-      round(100 * (0.6 * least(greatest((70 - fact_observation.resting_hr) / 30.0, 0), 1)
-                 + 0.4 * least(greatest((fact_observation.hrv - 20) / 60.0, 0), 1)), 2)
-  END
-lineage:
-  sources: [fact_observation.resting_hr, fact_observation.hrv]
-  upstream_metrics: []
+depends_on: []

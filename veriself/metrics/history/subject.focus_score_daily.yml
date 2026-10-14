@@ -15,8 +15,4 @@ entity: subject
 allowed_dimensions: [date.weekday, date.month, date.quarter]
 allowed_filters: [date.between, date.last_n_days, date.month]
 rls_policy: owner_only
-formula_sql: |
-  round(greatest(0, least(100, 100 * (fact_observation.focus_score - 40) / 50.0)), 2)
-lineage:
-  sources: [fact_observation.focus_score]
-  upstream_metrics: []
+depends_on: []

@@ -29,9 +29,9 @@ uv run python -m pytest tests -q
 
 ## 新增一个指标
 
-1. 在 `veriself/metrics/` 加一个 YAML（字段见契约第 2 节），一个文件一个指标；
-2. `formula_sql` 里引用的每个 `表.列` 必须出现在 `lineage.sources`；引用的每个上游指标必须出现在 `lineage.upstream_metrics`（用 `metric('...')` 形式）；
-3. 明确 `agg`（跨粒度上卷方式）——**填错会算出错误的数**：睡眠债用 `sum`，专注度用 `mean`；
+1. 在 `veriself/metrics/` 加一对同名文件：`<metric_id>.yml`（字段见契约第 2 节）和 `<metric_id>.sql`（一条输出 `subject_id`、`date_key`、`value` 的 SELECT）；
+2. SQL 只读 `obs_daily` / `evt_daily` / `subject_asof` / `fact_metric_value`。读指标表时写上 `metric_id`、上游当前 `metric_version`、`valid_to IS NULL`，并让 `depends_on` 与这些 `metric_id` 一致；
+3. 明确 `agg`（查询期跨粒度上卷方式）——**填错会在查询时算出错误的数**：日支出上卷用 `sum`，专注度上卷用 `mean`；
 4. 在 [`docs/01-指标清单.md`](01-指标清单.md) 补一行；
 5. 跑 `veriself init && veriself metrics show <your.metric>` 确认能加载。
 

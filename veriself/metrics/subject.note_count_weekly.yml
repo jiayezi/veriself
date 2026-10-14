@@ -1,5 +1,5 @@
 # subject.note_count_weekly —— 周笔记数（第 0 层：事件视图逻辑列按自然周求和）
-# grain=week + bucket：物化器自动做桶内聚合（sum）并取桶内最后一个有事件的日期为 date_key。
+# grain=week：SQL 按 ISO 周求和，date_key 是该周最后一个有事件的日期。
 metric_id: subject.note_count_weekly
 version: 1
 status: active
@@ -15,9 +15,4 @@ entity: subject
 allowed_dimensions: [date.weekday, date.day_of_week, date.month, date.quarter, context.is_travel, context.is_illness, context.location_type]
 allowed_filters: [date.between, date.last_n_days, date.month, context.is_travel, context.is_illness, context.location_type]
 rls_policy: owner_only
-formula_sql: fact_event.note_count
-bucket:
-  agg: sum
-lineage:
-  sources: [fact_event.note_count]
-  upstream_metrics: []
+depends_on: []

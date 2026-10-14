@@ -1,7 +1,7 @@
 """来源语义模型（`semantic_models/*.yml`）的加载与结构校验。
 
-契约 `formula_sql` 引用的**逻辑列**在这里声明（业界对应物：dbt semantic_models.yml /
-Cube cubes.yml）。三类模型：
+物化视图的**逻辑列**在这里声明（业界对应物：dbt semantic_models.yml /
+Cube cubes.yml）。指标 SQL 读这些列，不直接读窄表。三类模型：
 
 - `observation`（table=fact_observation）：通道窄表 → 日粒度列，每列声明 `channel + agg`
   （当日多条观测压成一个日值的聚合方式）；

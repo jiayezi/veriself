@@ -2,9 +2,9 @@
 
 覆盖点（对应 `docs/00-接口契约.md` 第 1 / 2 / 4 / 8 节与 `docs/01-指标清单.md`）：
 
-1. `metrics/*.yml`：18 个文件、字段完整、枚举合法、`metric_id` 唯一且与文件名一致、
-   `formula_sql` 里的每个 `表.列` 都在 `lineage.sources` 中、每个 `metric('x')` 都在
-   `lineage.upstream_metrics` 中、白名单取值合法、`rls_policy` 分布与清单一致、无环。
+1. `metrics/*.yml` + 同名 `.sql`：18 个指标、字段完整、枚举合法、`metric_id` 与文件名一致、
+   `depends_on` 与 SQL 里的 `fact_metric_value` 过滤一致、白名单取值合法、
+   `rls_policy` 分布与清单一致、无环。
 2. `metrics/history/*.yml`：2 个历史版本（`version=1`），与当前版本口径真实不同，
    不被 `load_contracts()` 扫进查询目录，但会和当前版一起写入 `dim_metric`。
 3. `schema.sql` 是唯一 DDL 来源，9 张表的列名/类型/可空性/主键与契约逐字一致，
@@ -71,8 +71,7 @@ REQUIRED_FIELDS = (
     "allowed_dimensions",
     "allowed_filters",
     "rls_policy",
-    "formula_sql",
-    "lineage",
+    "depends_on",
 )
 
 # docs/01-指标清单.md 的冻结取值：metric_id -> (grain, agg, unit, direction)
@@ -144,22 +143,11 @@ FILTER_VOCABULARY = {
 }
 
 # 契约 §2 的必填字段全集：semantic 的 MetricContract 是 extra="forbid"，多一个键就拒载。
-# 可选键：`deprecation`（空块可省略，缺省等价 null）与 `bucket`。
+# 可选键：`deprecation`（空块可省略，缺省等价 null）。计算在同名 `.sql`，不进 YAML。
 CONTRACT_FIELDS = frozenset(REQUIRED_FIELDS)
-OPTIONAL_FIELDS = frozenset({"deprecation", "bucket"})
-LINEAGE_FIELDS = frozenset({"sources", "upstream_metrics"})
+OPTIONAL_FIELDS = frozenset({"deprecation"})
 DEPRECATION_FIELDS = frozenset({"replaced_by", "sunset_at"})
 NAMESPACED = re.compile(r"^[a-z_]+\.[a-z_]+$")
-
-# formula_sql 允许引用的物理表（别名 o./e./s. 由 materializer 负责改写与去前缀）
-KNOWN_SOURCE_TABLES = {
-    "fact_observation",
-    "fact_event",
-    "dim_subject",
-    "dim_date",
-    "dim_metric",
-    "fact_metric_value",
-}
 
 # ---------------------------------------------------------------- DDL 期望（契约第 1 节，逐字）
 EXPECTED_SCHEMA: dict[str, tuple[tuple[str, str, str], ...]] = {
@@ -305,17 +293,6 @@ def is_acyclic(graph: dict[str, set[str]]) -> bool:
     return True
 
 
-def split_formula_references(formula: str) -> tuple[set[str], set[str]]:
-    """返回 (形如 `表.列` 的引用集合, `metric('x')` 引用的 metric_id 集合)。"""
-    metric_refs = set(re.findall(r"metric\(\s*'([^']+)'\s*\)", formula))
-    without_metrics = re.sub(r"metric\(\s*'[^']+'\s*\)", " ", formula)
-    dotted = {
-        f"{table}.{column}"
-        for table, column in re.findall(r"\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b", without_metrics)
-    }
-    return dotted, metric_refs
-
-
 @pytest.fixture(scope="module")
 def contracts() -> dict[str, dict]:
     return load_contracts(METRIC_FILES)
@@ -353,7 +330,9 @@ def test_history_dir_holds_two_older_versions_and_is_not_scanned(
     for metric_id, old in history.items():
         assert old["version"] == 1
         assert contracts[metric_id]["version"] == 2
-        assert old["formula_sql"] != contracts[metric_id]["formula_sql"]
+        old_sql = (HISTORY_DIR / f"{metric_id}.sql").read_text(encoding="utf-8")
+        current_sql = (METRICS_DIR / f"{metric_id}.sql").read_text(encoding="utf-8")
+        assert old_sql != current_sql
         assert old["definition"] != contracts[metric_id]["definition"]
 
 
@@ -375,17 +354,19 @@ def test_semantic_models_yaml_matches_frozen_column_lists():
     })
 
 
-def test_every_contract_source_exists_in_semantic_models(contracts: dict, history: dict):
-    """每个契约 lineage.sources 的每项都真实存在于语义模型（加载期已强制，双保险）。"""
-    from veriself.semantic_model import load_semantic_models, resolve_model
+def test_sql_depends_on_matches_fact_reads_and_columns_exist():
+    """同名 SQL 存在，depends_on 与 fact_metric_value 过滤一致，视图列在加载期核对。"""
+    from veriself.semantic.contract import load_contracts as load_metric_contracts
+    from veriself.semantic.contract import load_definition_versions
 
-    models = load_semantic_models()
-    for data in [*contracts.values(), *history.values()]:
-        for entry in data["lineage"]["sources"]:
-            qualifier, _, column = entry.partition(".")
-            model = resolve_model(models, qualifier)
-            assert model is not None, f"{entry}: '{qualifier}' 不是任何语义模型的表名/别名"
-            assert column in model.column_names, f"{entry}: '{column}' 不在语义模型里"
+    loaded = load_metric_contracts()
+    assert set(loaded) == set(MANIFEST)
+    for metric_id, contract in loaded.items():
+        sql_path = METRICS_DIR / f"{metric_id}.sql"
+        assert contract.sql == sql_path.read_text(encoding="utf-8")
+        assert set(contract.depends_on) == {upstream for upstream, _version in contract.metric_reads}
+    versions = load_definition_versions()
+    assert len(versions) == len(MANIFEST) + len(HISTORY_FILES) == 20
 
 
 @pytest.mark.parametrize("path", ALL_FILES, ids=lambda p: p.name)
@@ -406,12 +387,11 @@ def test_contract_file_is_complete_and_valid(path: Path) -> None:
     assert data["entity"] == "subject"
     assert data["owner"] and data["definition"] and data["display_name"]
     assert isinstance(data["synonyms"], list) and data["synonyms"]
-    assert isinstance(data["formula_sql"], str) and data["formula_sql"].strip()
+    assert isinstance(data["depends_on"], list)
+    sql_path = path.with_suffix(".sql")
+    assert sql_path.is_file(), f"{path.name} 缺少同名 SQL 文件"
+    assert sql_path.read_text(encoding="utf-8").lstrip().upper().startswith("SELECT")
     assert config.rls_visible_roles(data["rls_policy"])  # 非法 policy 会抛 ValueError
-
-    lineage = data["lineage"]
-    assert isinstance(lineage["sources"], list)
-    assert isinstance(lineage["upstream_metrics"], list)
 
     for dimension in data["allowed_dimensions"]:
         assert dimension in DIMENSION_VOCABULARY, dimension
@@ -428,9 +408,9 @@ def test_contract_file_is_complete_and_valid(path: Path) -> None:
 def test_contract_uses_only_frozen_schema_fields(path: Path) -> None:
     """semantic 的 MetricContract 是 extra="forbid"：多一个键就会被拒载。
 
-    这里把字段集锁死在契约 §2（必填全集 + 可选 `deprecation` / `bucket`），
-    多键/少键都会立刻失败；`lineage` / `deprecation` 的子键同样锁死。
-    `bucket` 只允许出现在非日粒度契约上；空 `deprecation` 块可省略。
+    这里把字段集锁死在契约 §2（必填全集 + 可选 `deprecation`），
+    多键/少键都会立刻失败。计算写在同名 `.sql`，YAML 里不允许 `sql` / `formula_sql`。
+    空 `deprecation` 块可省略。
     """
     data = load_contract(path)
     allowed = CONTRACT_FIELDS | OPTIONAL_FIELDS
@@ -438,10 +418,7 @@ def test_contract_uses_only_frozen_schema_fields(path: Path) -> None:
     assert CONTRACT_FIELDS <= set(data), (
         f"{path.name} 缺少 {sorted(CONTRACT_FIELDS - set(data))}"
     )
-    if "bucket" in data:
-        assert data["grain"] != "day", f"{path.name}: bucket 只允许用于非日粒度指标"
-        assert set(data["bucket"]) == {"agg"}, f"{path.name}: bucket 子键只能有 agg"
-    assert set(data["lineage"]) == LINEAGE_FIELDS
+    assert "sql" not in data and "formula_sql" not in data and "bucket" not in data
     if "deprecation" in data:
         assert set(data["deprecation"]) == DEPRECATION_FIELDS
         assert data["status"] == "deprecated", f"{path.name}: 空 deprecation 块应省略"
@@ -452,25 +429,11 @@ def test_contract_uses_only_frozen_schema_fields(path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", ALL_FILES, ids=lambda p: p.name)
-def test_formula_references_are_declared_in_lineage(path: Path) -> None:
+def test_depends_on_is_a_list_of_metric_ids(path: Path) -> None:
     data = load_contract(path)
-    sources = set(data["lineage"]["sources"])
-    upstreams = set(data["lineage"]["upstream_metrics"])
-    dotted, metric_refs = split_formula_references(data["formula_sql"])
-
-    for reference in sorted(dotted):
-        table, _column = reference.split(".", 1)
-        assert table in KNOWN_SOURCE_TABLES, f"{path.name}: 未知来源表 {reference}"
-        assert reference in sources, f"{path.name}: {reference} 未在 lineage.sources 声明"
-
-    for metric_id in sorted(metric_refs):
-        assert metric_id in upstreams, f"{path.name}: {metric_id} 未在 lineage.upstream_metrics 声明"
-    for metric_id in sorted(upstreams):
-        assert f"metric('{metric_id}')" in data["formula_sql"], (
-            f"{path.name}: upstream_metrics 里的 {metric_id} 未在 formula_sql 里用 metric('...') 引用"
-        )
-    if upstreams:  # 派生指标必须用 metric('...') 形式，不能旁路引用上游的原始来源
-        assert metric_refs == upstreams
+    assert isinstance(data["depends_on"], list)
+    for metric_id in data["depends_on"]:
+        assert isinstance(metric_id, str) and metric_id in MANIFEST
 
 
 def test_manifest_grain_agg_unit_direction_match(contracts: dict) -> None:
@@ -492,10 +455,10 @@ def test_upstream_metrics_registered_and_acyclic(contracts: dict, history: dict)
     registered = set(contracts)
     graph: dict[str, set[str]] = {}
     for metric_id, data in {**contracts, **history}.items():
-        upstreams = set(data["lineage"]["upstream_metrics"])
+        upstreams = set(data["depends_on"])
         assert upstreams <= registered, f"{metric_id} 引用了未注册的上游: {upstreams - registered}"
         graph[metric_id] = upstreams
-    assert is_acyclic(graph), "lineage.upstream_metrics 存在环"
+    assert is_acyclic(graph), "depends_on 存在环"
 
 
 def test_derived_metrics_declare_upstream(contracts: dict) -> None:
@@ -508,13 +471,13 @@ def test_derived_metrics_declare_upstream(contracts: dict) -> None:
         "subject.mood_volatility_7d": ["subject.mood_score_daily"],
     }
     for metric_id, upstreams in expected.items():
-        assert contracts[metric_id]["lineage"]["upstream_metrics"] == upstreams
+        assert contracts[metric_id]["depends_on"] == upstreams
 
 
-def test_history_versions_have_real_dialect_difference(history: dict) -> None:
-    sleep_debt = history["subject.sleep_debt_7d"]["formula_sql"]
+def test_history_versions_have_real_dialect_difference() -> None:
+    sleep_debt = (HISTORY_DIR / "subject.sleep_debt_7d.sql").read_text(encoding="utf-8")
     assert "ROWS BETWEEN 4 PRECEDING" in sleep_debt, "v1 应为 5 日窗口"
-    focus = history["subject.focus_score_daily"]["formula_sql"]
+    focus = (HISTORY_DIR / "subject.focus_score_daily.sql").read_text(encoding="utf-8")
     assert "focus_score - 40" in focus, "v1 应为 40-90 线性拉伸口径"
 
 
@@ -801,9 +764,10 @@ def test_history_versions_coexist_and_current_upsert_does_not_replace_them(
             " WHERE metric_id IN ('subject.sleep_debt_7d', 'subject.focus_score_daily')"
         ).fetchall()
     }
-    assert stored[("subject.sleep_debt_7d", 1)] == contract_hash(history["subject.sleep_debt_7d"])
-    assert stored[("subject.sleep_debt_7d", 2)] == contract_hash(contracts["subject.sleep_debt_7d"])
-    assert stored[("subject.focus_score_daily", 1)] == contract_hash(history["subject.focus_score_daily"])
+    by_key = {(item.metric_id, item.version): item.contract_hash for item in definitions}
+    assert stored[("subject.sleep_debt_7d", 1)] == by_key[("subject.sleep_debt_7d", 1)]
+    assert stored[("subject.sleep_debt_7d", 2)] == by_key[("subject.sleep_debt_7d", 2)]
+    assert stored[("subject.focus_score_daily", 1)] == by_key[("subject.focus_score_daily", 1)]
     assert stored[("subject.focus_score_daily", 1)] != stored[("subject.focus_score_daily", 2)]
 
     updated = dict(contracts["subject.sleep_debt_7d"], display_name="近7日睡眠债（改名）")
@@ -955,19 +919,18 @@ def test_write_audit_appends_with_incrementing_id(conn) -> None:
 
 
 # ================================================================ 5. 与物化器的集成
-def test_formula_sql_binds_in_materializer_scope(conn, contracts: dict, history: dict) -> None:
-    """每个 formula_sql 都要能绑到 materializer 生成的求值作用域上（不会 Binder Error）。"""
-    materializer = pytest.importorskip("veriself.materializer")
-    build_insert_sql = getattr(materializer, "build_insert_sql", None)
-    if build_insert_sql is None:  # 物化器 API 变更时跳过，避免误报
-        pytest.skip("materializer.build_insert_sql 不存在")
+def test_metric_sql_explains_in_materializer_scope(conn) -> None:
+    """每条指标 SQL 都能在来源视图已经建好的库上 EXPLAIN，不会 Binder Error。"""
+    from veriself.semantic.contract import load_definition_versions
 
+    materializer = pytest.importorskip("veriself.materializer")
     materializer.ensure_views(conn)
-    pool = {**contracts, **history}
-    for path in ALL_FILES:
-        contract = load_contract(path)
-        sql = build_insert_sql(contract, pool)
+    explained = 0
+    for contract in load_definition_versions():
+        sql = materializer.build_insert_sql(contract, {})
         conn.execute("EXPLAIN " + sql)
+        explained += 1
+    assert explained == 20
 
 
 def test_materializer_obs_channels_are_channel_scoped() -> None:
@@ -1111,10 +1074,12 @@ def _golden_dataset() -> tuple[list[tuple], list[tuple]]:
 
 
 @pytest.fixture(scope="module")
-def golden_warehouse(contracts: dict):
+def golden_warehouse():
     """建库 → 灌固定数据 → 用 materializer 物化 18 个指标。"""
     from veriself import materializer  # Lead 所有；此处作为集成基准使用
+    from veriself.semantic.contract import load_contracts as load_metric_contracts
 
+    loaded = load_metric_contracts()
     conn = fresh_conn()
     materializer.ensure_views(conn)
     conn.execute(
@@ -1150,8 +1115,8 @@ def golden_warehouse(contracts: dict):
     # 这样 grain 相关的断言走的是真实链路，而不是测试自带的字典。
     from veriself.warehouse.loader import upsert_dim_metric
 
-    upsert_dim_metric(conn, contracts)
-    written = materializer.materialize_all(conn, contracts)
+    upsert_dim_metric(conn, loaded)
+    written = materializer.materialize_all(conn, loaded)
     yield conn, written
     conn.close()
 

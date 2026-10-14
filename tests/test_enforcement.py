@@ -217,6 +217,9 @@ def contracts_dir():
 
 
 # ------------------------------------------------------------------ 最小契约
+_DAILY_SQL = "SELECT subject_id, date_key, sleep_hours AS value\nFROM obs_daily\n"
+
+
 def _contract(**over):
     base = {
         "metric_id": "subject.x",
@@ -234,8 +237,8 @@ def _contract(**over):
         "allowed_dimensions": ["date.weekday", "date.month"],
         "allowed_filters": ["date.between", "date.last_n_days", "date.month"],
         "rls_policy": "owner_only",
-        "formula_sql": "o.sleep_hours",
-        "lineage": {"sources": ["fact_observation.sleep_hours"], "upstream_metrics": []},
+        "depends_on": [],
+        "sql": _DAILY_SQL,
         "deprecation": {"replaced_by": None, "sunset_at": None},
     }
     base.update(over)
@@ -285,63 +288,91 @@ def test_contract_hash_matches_golden():
 
 
 def test_contract_hash_fixed_sample_and_loader_consistency(contracts_dir):
-    """固定 YAML → 固定哈希；loader 的 contract_hash 必须等于对原始 YAML dict 调用权威函数。"""
-    (contracts_dir / "a.yml").write_text(SAMPLE_YAML, encoding="utf-8")
-    (contracts_dir / "b.yml").write_text(UPSTREAM_YAML, encoding="utf-8")
-    expected = "sha256:61fc70bf013f7cab"
+    """loader 的 contract_hash 必须等于对「YAML 字段 + SQL 原文」调用权威函数。"""
+    (contracts_dir / "subject.sleep_debt_7d.yml").write_text(SAMPLE_YAML, encoding="utf-8")
+    (contracts_dir / "subject.sleep_debt_7d.sql").write_text(SAMPLE_SQL, encoding="utf-8")
+    (contracts_dir / "subject.sleep_need_deviation_daily.yml").write_text(UPSTREAM_YAML, encoding="utf-8")
+    (contracts_dir / "subject.sleep_need_deviation_daily.sql").write_text(_DAILY_SQL, encoding="utf-8")
     raw = yaml.safe_load(SAMPLE_YAML)
-    assert contract_hash(raw) == expected
+    payload = dict(raw)
+    payload["sql"] = SAMPLE_SQL
     loaded = load_contracts(contracts_dir)
-    assert loaded["subject.sleep_debt_7d"].contract_hash == expected
-    assert loaded["subject.sleep_debt_7d"].contract_hash == contract_hash(raw)
+    assert loaded["subject.sleep_debt_7d"].contract_hash == contract_hash(payload)
+    assert loaded["subject.sleep_debt_7d"].contract_hash == contract_hash(loaded["subject.sleep_debt_7d"].raw)
+    assert contract_hash(raw) != loaded["subject.sleep_debt_7d"].contract_hash
 
 
 # ================================================================== 契约加载五条规则
-def _write(contracts_dir, name, **over):
+def _write(contracts_dir, name, sql=None, **over):
     base = {
         "metric_id": "subject.a", "version": 1, "status": "active", "owner": "t",
         "display_name": "a", "unit": "hour", "direction": "neutral", "agg": "mean", "grain": "day",
         "allowed_dimensions": [], "allowed_filters": [], "rls_policy": "owner_only",
-        "formula_sql": "o.sleep_hours", "lineage": {"sources": ["fact_observation.sleep_hours"]},
+        "depends_on": [],
     }
     base.update(over)
-    (contracts_dir / name).write_text(yaml.safe_dump(base, allow_unicode=True), encoding="utf-8")
+    sql_text = sql if sql is not None else base.pop("sql", _DAILY_SQL)
+    base.pop("sql", None)
+    metric_id = str(base["metric_id"])
+    given = Path(name)
+    filename = name if given.stem == metric_id else f"{metric_id}{given.suffix or '.yml'}"
+    (contracts_dir / filename).write_text(yaml.safe_dump(base, allow_unicode=True), encoding="utf-8")
+    (contracts_dir / Path(filename).with_suffix(".sql").name).write_text(sql_text, encoding="utf-8")
 
 
 def test_load_contracts_duplicate_metric_id(contracts_dir):
-    _write(contracts_dir, "a.yml", metric_id="subject.dup")
-    _write(contracts_dir, "b.yml", metric_id="subject.dup")
+    _write(contracts_dir, "subject.dup.yml", metric_id="subject.dup")
+    _write(contracts_dir, "subject.dup.yaml", metric_id="subject.dup")
     with pytest.raises(config.ContractError, match="重复"):
         load_contracts(contracts_dir)
 
 
-def test_load_contracts_rejects_undeclared_source(contracts_dir):
-    _write(contracts_dir, "a.yml", formula_sql="o.not_declared")
-    with pytest.raises(config.ContractError, match="lineage.sources"):
+def test_load_contracts_rejects_unknown_table(contracts_dir):
+    _write(
+        contracts_dir,
+        "a.yml",
+        sql="SELECT subject_id, date_key, value FROM fact_observation\n",
+    )
+    with pytest.raises(config.ContractError, match="不允许读取"):
         load_contracts(contracts_dir)
 
 
 def test_load_contracts_rejects_undeclared_upstream(contracts_dir):
-    _write(contracts_dir, "a.yml", formula_sql="sum(metric('subject.missing'))",
-           lineage={"sources": [], "upstream_metrics": []})
-    with pytest.raises(config.ContractError, match="upstream_metrics"):
+    _write(
+        contracts_dir,
+        "a.yml",
+        sql=(
+            "SELECT subject_id, date_key, value FROM fact_metric_value\n"
+            "WHERE metric_id = 'subject.missing' AND metric_version = 1 AND valid_to IS NULL\n"
+        ),
+    )
+    with pytest.raises(config.ContractError, match="depends_on"):
         load_contracts(contracts_dir)
 
 
-def test_load_contracts_accepts_alias_formula_like_materializer(contracts_dir):
-    """materializer 用 `o.xxx` / `s.xxx` 别名写法，必须被接受。"""
-    _write(contracts_dir, "a.yml", metric_id="subject.alias_form",
-           formula_sql="o.sleep_hours - s.sleep_need_h",
-           lineage={"sources": ["fact_observation.sleep_hours", "dim_subject.sleep_need_h"]})
+def test_load_contracts_accepts_subject_asof_join(contracts_dir):
+    """指标 SQL 可以连接 subject_asof，业务日半开区间写在文件里。"""
+    _write(
+        contracts_dir,
+        "a.yml",
+        metric_id="subject.alias_form",
+        sql=(
+            "SELECT o.subject_id, o.date_key, o.sleep_hours - s.sleep_need_h AS value\n"
+            "FROM obs_daily AS o\n"
+            "LEFT JOIN subject_asof AS s ON s.subject_id = o.subject_id\n"
+        ),
+    )
     contracts = load_contracts(contracts_dir)
     assert "subject.alias_form" in contracts
 
 
-def test_load_contracts_ignores_metric_calls_in_comments(contracts_dir):
-    """注释里的 `metric('x')` 不是引用，加载不应误拒。"""
-    _write(contracts_dir, "a.yml",
-           formula_sql="-- 曾用过 metric('subject.old_metric')\no.sleep_hours",
-           lineage={"sources": ["fact_observation.sleep_hours"], "upstream_metrics": []})
+def test_load_contracts_ignores_metric_ids_in_comments(contracts_dir):
+    """注释里的指标名不是依赖，加载不应误拒。"""
+    _write(
+        contracts_dir,
+        "a.yml",
+        sql="-- 曾用过 subject.old_metric\n" + _DAILY_SQL,
+    )
     contracts = load_contracts(contracts_dir)
     assert "subject.a" in contracts
 
@@ -379,53 +410,51 @@ def test_metric_contract_from_mapping_rejects_missing_or_non_string_metric_id():
 
 
 def test_load_contracts_rejects_column_not_in_semantic_model(contracts_dir):
-    """公式引用的列必须在语义模型里真实存在（typo 在加载期拒绝）。"""
-    _write(contracts_dir, "a.yml",
-           formula_sql="o.sleep_hour",  # typo：模型里只有 sleep_hours
-           lineage={"sources": ["fact_observation.sleep_hour"], "upstream_metrics": []})
-    with pytest.raises(config.ContractError, match="没有逻辑列"):
+    """视图上不存在的列在加载期拒绝。"""
+    _write(
+        contracts_dir,
+        "a.yml",
+        sql="SELECT subject_id, date_key, sleep_hour AS value FROM obs_daily\n",
+    )
+    with pytest.raises(config.ContractError, match="sleep_hour"):
         load_contracts(contracts_dir)
 
 
 def test_load_contracts_rejects_unknown_source_qualifier(contracts_dir):
-    """公式引用的限定名必须是语义模型的表名或别名。"""
-    _write(contracts_dir, "a.yml",
-           formula_sql="mystery.sleep_hours",
-           lineage={"sources": ["fact_observation.sleep_hours"], "upstream_metrics": []})
-    with pytest.raises(config.ContractError, match="不是任何语义模型"):
+    """不能读未登记的关系。"""
+    _write(
+        contracts_dir,
+        "a.yml",
+        sql="SELECT subject_id, date_key, sleep_hours AS value FROM mystery\n",
+    )
+    with pytest.raises(config.ContractError, match="mystery"):
         load_contracts(contracts_dir)
 
 
-def test_load_contracts_accepts_declarative_bucket(contracts_dir):
-    """`bucket: {agg: sum}` + 日粒度标量公式是合法声明。"""
-    _write(contracts_dir, "a.yml", grain="week",
-           formula_sql="o.sleep_hours", bucket={"agg": "sum"})
-    contracts = load_contracts(contracts_dir)
-    bucket = contracts["subject.a"].bucket
-    assert bucket is not None
-    assert bucket.agg == "sum"
-
-
-def test_load_contracts_rejects_invalid_bucket_agg(contracts_dir):
-    """bucket.agg 必须是枚举值。"""
-    _write(contracts_dir, "a.yml", grain="week", bucket={"agg": "mode"})
-    with pytest.raises(config.ContractError, match="bucket"):
+def test_load_contracts_rejects_fact_read_without_version_filter(contracts_dir):
+    """读 fact_metric_value 必须自己写上版本和 valid_to，引擎不补。"""
+    _write(
+        contracts_dir,
+        "b.yml",
+        metric_id="subject.b",
+    )
+    _write(
+        contracts_dir,
+        "a.yml",
+        metric_id="subject.a",
+        depends_on=["subject.b"],
+        sql=(
+            "SELECT subject_id, date_key, value FROM fact_metric_value\n"
+            "WHERE metric_id = 'subject.b' AND metric_version = 1\n"
+        ),
+    )
+    with pytest.raises(config.ContractError, match="valid_to"):
         load_contracts(contracts_dir)
 
 
-def test_load_contracts_rejects_bucket_on_day_grain(contracts_dir):
-    """grain=day 不允许声明 bucket（桶聚合只用于非日粒度指标）。"""
-    _write(contracts_dir, "a.yml", bucket={"agg": "sum"})  # grain 默认 day
-    with pytest.raises(config.ContractError, match="bucket"):
-        load_contracts(contracts_dir)
-
-
-def test_load_contracts_rejects_bucket_with_window_formula(contracts_dir):
-    """声明 bucket 后 formula_sql 不得再写窗口函数（两套机制互斥）。"""
-    _write(contracts_dir, "a.yml", grain="week",
-           formula_sql="sum(o.sleep_hours) OVER (PARTITION BY subject_id)",
-           bucket={"agg": "sum"})
-    with pytest.raises(config.ContractError, match="窗口函数"):
+def test_load_contracts_rejects_formula_sql_key(contracts_dir):
+    _write(contracts_dir, "a.yml", formula_sql="SELECT 1")
+    with pytest.raises(config.ContractError, match="formula_sql"):
         load_contracts(contracts_dir)
 
 
@@ -439,8 +468,8 @@ def test_load_contracts_rejects_bad_grain_and_rls(contracts_dir):
     _write(contracts_dir, "a.yml", grain="hour")
     with pytest.raises(config.ContractError, match="grain"):
         load_contracts(contracts_dir)
-    (contracts_dir / "a.yml").unlink()
-    _write(contracts_dir, "b.yml", rls_policy="allow_all")
+    (contracts_dir / "subject.a.yml").unlink()
+    _write(contracts_dir, "subject.a.yml", rls_policy="allow_all")
     with pytest.raises(config.ContractError, match="rls_policy"):
         load_contracts(contracts_dir)
 
@@ -459,10 +488,18 @@ def test_load_contracts_replaced_by_must_exist(contracts_dir):
 
 
 def test_load_contracts_rejects_cycle(contracts_dir):
-    _write(contracts_dir, "a.yml", metric_id="subject.a", formula_sql="sum(metric('subject.b'))",
-           lineage={"sources": [], "upstream_metrics": ["subject.b"]})
-    _write(contracts_dir, "b.yml", metric_id="subject.b", formula_sql="sum(metric('subject.a'))",
-           lineage={"sources": [], "upstream_metrics": ["subject.a"]})
+    upstream = (
+        "SELECT subject_id, date_key, value FROM fact_metric_value\n"
+        "WHERE metric_id = '{metric}' AND metric_version = 1 AND valid_to IS NULL\n"
+    )
+    _write(
+        contracts_dir, "a.yml", metric_id="subject.a", depends_on=["subject.b"],
+        sql=upstream.format(metric="subject.b"),
+    )
+    _write(
+        contracts_dir, "b.yml", metric_id="subject.b", depends_on=["subject.a"],
+        sql=upstream.format(metric="subject.a"),
+    )
     with pytest.raises(config.ContractError, match="环"):
         load_contracts(contracts_dir)
 
@@ -1175,7 +1212,8 @@ def test_describe_metric_detail(contracts):
     described = describe_metric(contracts, "subject.sleep_daily")
     assert described["metric_id"] == "subject.sleep_daily"
     assert described["contract_hash"] == contracts["subject.sleep_daily"].contract_hash
-    assert described["lineage"]["sources"] == ["fact_observation.sleep_hours"]
+    assert described["depends_on"] == []
+    assert "sleep_hours" in described["sql"]
     assert described["available_dimensions"] == ["date.weekday", "date.month"]
     assert described["as_of_definition"] == AS_OF_DEFINITION
 
@@ -1212,7 +1250,16 @@ def test_public_api_signatures_are_frozen():
 
 
 # ------------------------------------------------------------------ 固定哈希样例用 YAML
-SAMPLE_YAML = """metric_id: subject.sleep_debt_7d
+SAMPLE_SQL = """\
+SELECT subject_id, date_key, value
+FROM fact_metric_value
+WHERE metric_id = 'subject.sleep_need_deviation_daily'
+  AND metric_version = 1
+  AND valid_to IS NULL
+"""
+
+SAMPLE_YAML = """\
+metric_id: subject.sleep_debt_7d
 version: 1
 status: active
 owner: jiayezi
@@ -1227,17 +1274,14 @@ entity: subject
 allowed_dimensions: [date.weekday, date.month]
 allowed_filters: [date.between, date.last_n_days]
 rls_policy: owner_only
-formula_sql: |
-  sum(metric('subject.sleep_need_deviation_daily'))
-lineage:
-  sources: []
-  upstream_metrics: [subject.sleep_need_deviation_daily]
+depends_on: [subject.sleep_need_deviation_daily]
 deprecation:
   replaced_by: null
   sunset_at: null
 """
 
-UPSTREAM_YAML = """metric_id: subject.sleep_need_deviation_daily
+UPSTREAM_YAML = """\
+metric_id: subject.sleep_need_deviation_daily
 version: 1
 status: active
 owner: jiayezi
@@ -1250,10 +1294,7 @@ entity: subject
 allowed_dimensions: [date.weekday]
 allowed_filters: [date.between]
 rls_policy: no_pii
-formula_sql: o.sleep_hours - s.sleep_need_h
-lineage:
-  sources: [fact_observation.sleep_hours, dim_subject.sleep_need_h]
-  upstream_metrics: []
+depends_on: []
 deprecation:
   replaced_by: null
   sunset_at: null

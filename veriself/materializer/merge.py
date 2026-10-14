@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from veriself import config
 from veriself.materializer import contracts as _contracts
-from veriself.materializer import sqlbuild as _sqlbuild
 
 __all__ = [
     "VALUE_ABS_FLOOR",
@@ -86,45 +86,26 @@ def build_merge_sql(
     batch_ts: str,
     models: Mapping[str, Any] | None = None,
 ) -> tuple[list[tuple[str, list[Any]]], str]:
-    """生成本批次的**三步合并**语句。
+    """生成本批次的三步合并语句。指标 SQL 原样进入临时表，本函数不改写它。
 
-    为什么不用单条 `MERGE`：
+    不用单条 MERGE：DuckDB 不支持 USING 子查询里的 WITH，并且 WHEN MATCHED AND
+    条件不成立时不会继续后续分支，关行和插行必须拆开。
 
-    1. `MERGE ... USING (WITH ... SELECT ...)` —— DuckDB 不支持 `WITH` 出现在 `USING` 子查询里
-       （`Parser Error`）。所以先把本批次结果落到临时表。
-    2. 单条 `MERGE` 带 `WHEN MATCHED AND <值不同> THEN UPDATE` + `WHEN NOT MATCHED THEN INSERT`
-       —— DuckDB 在 `WHEN MATCHED AND` 条件不成立时**不会继续尝试后续分支**，
-       于是"值变化"的键只被关闭、新值永远插不进去（有效行数反而少了 1）。
-       这是与标准 SQL MERGE 语义的差异，不足以承载本需求。
+    ① 值或口径变化的有效行设置 valid_to。
+    ② 临时表里当前没有有效行的键插入。
+    ③ 本批次未产出的键设置 valid_to，避免僵尸有效行。
+    无变化时三步影响行数都是 0。
 
-    因此拆成三步，每步语义单一、可单独测试：
-
-    | 步骤 | 作用 |
-    | --- | --- |
-    | ① 关闭变化键 | `value` 或 `contract_hash` 与临时表**不同**的有效行 → `valid_to = batch_ts` |
-    | ② 插入新行 | 临时表里"当前没有有效行"的键全部插入（含①刚关闭的） |
-    | ③ 关闭消失键 | 本批次未产出的键 → `valid_to = batch_ts`（防"陈旧但被当作当前事实"的僵尸行） |
-
-    三个步骤合起来恰好覆盖三种情形，且无变化时①③影响 0 行、②插入 0 行 → **纯重算零写放大**。
-
-    返回 `(statements, temp_table)`；`statements` 需按顺序执行，顺序与
-    `_MERGE_COUNT_KEYS` 一一对应。DuckDB 对这四条语句各返回一行 `Count`：
-    落临时表的 Count 是本批次产出行数（等于合并后的有效行数），三步 DML 的
-    Count 是各自影响的行数。`materialize_all` 用这些数填统计，不再回表拉键。
-    `valid_from` 统一用**批次时间戳**，使同批次行可整体识别、as-of 可按批次切分。
+    返回的语句顺序与 `_MERGE_COUNT_KEYS` 对齐。`contracts` / `models` 保留给调用方；
+    来源视图由 `materialize_all` 建立。
     """
+    del contracts, models
     metric_id = _contracts._metric_id(contract)
     version = int(_contracts._field(contract, "version", 1) or 1)
-    temp = f"_batch_{_sqlbuild._alias(metric_id)}_{version}"
-    ctes = _sqlbuild._compute_ctes(contract, contracts, models=models)
+    temp = f"_batch_{_contracts._alias(metric_id)}_{version}"
+    select = _batch_select(_contracts._sql(contract))
 
-    create = (
-        f"CREATE OR REPLACE TEMP TABLE {temp} AS\n"
-        f"{ctes}\n"
-        "SELECT subject_id, date_key, daily_value AS value\n"
-        "FROM rolled\n"
-        "WHERE daily_value IS NOT NULL AND isfinite(daily_value)"
-    )
+    create = f"CREATE OR REPLACE TEMP TABLE {temp} AS\n{select}"
 
     scope = (
         f"tgt.metric_id = '{metric_id}'"
@@ -190,27 +171,54 @@ def build_insert_sql(
     """生成"求值 + 落库"的 INSERT ... SELECT（追加语义，供测试与一次性装载使用）。
 
     日常物化走 `build_merge_sql`：本函数不做无变化检测，重复调用会累积历史行。
+    指标 SQL 原样放进子查询，引擎只丢掉非有限值。
     """
+    del contracts, models
     metric_id = _contracts._metric_id(contract)
     version = int(_contracts._field(contract, "version", 1) or 1)
     contract_hash = _hash_for(contract)
-    compute = _sqlbuild._compute_ctes(contract, contracts, models=models)
+    select = _batch_select(_contracts._sql(contract))
     return f"""INSERT INTO fact_metric_value
     (metric_id, subject_id, date_key, value, metric_version, contract_hash, computed_at, valid_from, valid_to)
-{compute}
 SELECT
     '{metric_id}',
     subject_id,
     date_key,
-    daily_value,
+    value,
     {version},
     '{contract_hash}',
     now(),
     now(),
     NULL
-FROM rolled
-WHERE daily_value IS NOT NULL AND isfinite(daily_value)
+FROM (
+{select}
+) AS finite_rows
 """
+
+
+def _batch_select(sql: str) -> str:
+    """把指标 SELECT 包进子查询，只保留有限值。不改写指标 SQL 本身。"""
+    return (
+        "SELECT subject_id, date_key, value\n"
+        "FROM (\n"
+        f"{sql}\n"
+        ") AS metric_rows\n"
+        "WHERE value IS NOT NULL AND isfinite(value)"
+    )
+
+
+def assert_unique_grain(conn: Any, temp: str, metric_id: str) -> None:
+    """临时表里同一个 `(subject_id, date_key)` 只能有一行，否则拒绝落库。"""
+    duplicated = conn.execute(
+        f"SELECT count(*) FROM ("
+        f" SELECT subject_id, date_key FROM {temp}"
+        f" GROUP BY 1, 2 HAVING count(*) > 1)"
+    ).fetchall()
+    count = int(duplicated[0][0]) if duplicated else 0
+    if count:
+        raise config.ContractError(
+            f"指标 {metric_id} 的 SQL 产出了 {count} 组重复的 (subject_id, date_key)，拒绝落库"
+        )
 
 
 # 与 build_merge_sql 返回的 statements 顺序绑定。

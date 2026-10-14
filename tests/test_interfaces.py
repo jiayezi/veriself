@@ -99,11 +99,11 @@ class FakeContract:
         self.rls_policy = kwargs.get("rls_policy", "owner_only")
         self.owner = kwargs.get("owner", "jiayezi")
         self.definition = kwargs.get("definition", f"{metric_id} 的口径说明（测试替身）")
-        self.formula_sql = kwargs.get("formula_sql", "mean(coalesce(o.sleep_hours, 0))")
-        self.lineage = kwargs.get(
-            "lineage",
-            {"sources": ["fact_observation.sleep_hours"], "upstream_metrics": []},
+        self.sql = kwargs.get(
+            "sql",
+            "SELECT subject_id, date_key, sleep_hours AS value FROM obs_daily",
         )
+        self.depends_on = list(kwargs.get("depends_on", []))
         self.allowed_dimensions = list(kwargs.get("allowed_dimensions", ["date.weekday", "date.month"]))
         self.allowed_filters = list(kwargs.get("allowed_filters", ["date.between", "date.last_n_days"]))
 
@@ -118,10 +118,11 @@ CONTRACTS: dict[str, FakeContract] = {
         rls_policy="owner_only",
         allowed_dimensions=["date.weekday"],
         allowed_filters=["date.between", "date.last_n_days"],
-        lineage={
-            "sources": ["fact_observation.sleep_hours", "dim_subject.sleep_need_h"],
-            "upstream_metrics": ["subject.sleep_need_deviation_daily"],
-        },
+        depends_on=["subject.sleep_need_deviation_daily"],
+        sql=(
+            "SELECT subject_id, date_key, value FROM fact_metric_value "
+            "WHERE metric_id = 'subject.sleep_need_deviation_daily'"
+        ),
     ),
     "subject.daily_steps": FakeContract(
         "subject.daily_steps",
@@ -476,14 +477,14 @@ def test_metrics_list_json(semantic_fake: dict[str, Any]) -> None:
     assert {row["metric_id"] for row in payload["metrics"]} == set(CONTRACTS)
 
 
-def test_metrics_show_prints_lineage_and_contract_hash(semantic_fake: dict[str, Any]) -> None:
+def test_metrics_show_prints_sql_and_contract_hash(semantic_fake: dict[str, Any]) -> None:
     result = runner.invoke(cli.app, ["metrics", "show", "subject.sleep_debt_7d"])
     assert result.exit_code == 0, result.output
     assert "contract_hash" in result.output
     assert "sha256:0123456789abcdef" in result.output
-    assert "血缘" in result.output
-    assert "dim_subject.sleep_need_h" in result.output
+    assert "depends_on" in result.output
     assert "subject.sleep_need_deviation_daily" in result.output
+    assert "fact_metric_value" in result.output
     assert "date.weekday" in result.output
 
 
@@ -896,7 +897,8 @@ def test_mcp_describe_metric(semantic_fake: dict[str, Any]) -> None:
     payload = _call_tool("describe_metric", {"metric_id": "subject.sleep_debt_7d"})
     assert payload["ok"] is True
     assert payload["metric"]["contract_hash"].startswith("sha256:")
-    assert payload["metric"]["lineage"]["sources"]
+    assert payload["metric"]["depends_on"] == ["subject.sleep_need_deviation_daily"]
+    assert "fact_metric_value" in payload["metric"]["sql"]
     assert payload["visible_roles"] == ["owner"]
 
 

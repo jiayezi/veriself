@@ -2,10 +2,7 @@
 
 逻辑列（通道 → 日粒度列、事件逻辑列、维度列）与"表名 → 查询别名"的映射全部来自
 `semantic_models/*.yml`（`veriself.semantic_model`）——加一张来源表或一个
-逻辑列只需改 YAML，本模块与 `sqlbuild` 都不再持有列清单。
-
-注意：必须映射到**别名**而不是视图名。DuckDB 中 `FROM obs_daily o` 之后原表名 `obs_daily`
-会被别名遮蔽，公式里再写 `obs_daily.xxx` 会直接 Binder Error。
+逻辑列只需改 YAML。指标 SQL 读这里生成的视图，不直接读窄表。
 """
 
 from __future__ import annotations
@@ -29,7 +26,7 @@ def _models(models: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def source_aliases(models: Mapping[str, Any] | None = None) -> dict[str, str]:
-    """表名 → 查询别名（由语义模型派生，`sqlrefs.rewrite` / `_touches` 的唯一来源）。"""
+    """表名 → 查询别名（由语义模型派生，阅读指标 SQL 时对照）。"""
     return {model.table: model.alias for model in _models(models).values() if model.alias}
 
 
@@ -47,7 +44,7 @@ def ensure_views(conn: Any, models: Mapping[str, Any] | None = None) -> None:
     """幂等建立物化所需的三个视图（`obs_daily` / `evt_daily` / `subject_asof`）。
 
     `subject_asof` 露出全部 SCD2 版本（含 `valid_from` / `valid_to`）。
-    按业务日落入 `[valid_from, valid_to)` 的连接在 `sqlbuild` 里做，不在视图里滤当前行。
+    按业务日落入 `[valid_from, valid_to)` 的连接写在指标 SQL 里，不在视图里滤当前行。
     视图列清单由语义模型驱动；缺少任一必需来源表 → `ContractError`（fail-closed）。
     """
     resolved = _models(models)
